@@ -108,9 +108,11 @@ fn sine_wave(
     duration_value: Duration,
     amplify_value: f32,
 ) -> Result<(), LabeledError> {
-    let stream_handle = OutputStreamBuilder::open_default_stream().map_err(|err| {
+    let mut stream_handle = OutputStreamBuilder::open_default_stream().map_err(|err| {
         LabeledError::new(err.to_string()).with_label("audio stream exception", Span::unknown())
     })?;
+
+    stream_handle.log_on_drop(false);
 
     let sink = Sink::connect_new(stream_handle.mixer());
     let source = SineWave::new(frequency_value)
