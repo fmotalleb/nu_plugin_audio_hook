@@ -76,6 +76,34 @@ sound meta list
 
 ## 🔧 Installation  
 
+### (If using GNU/Linux) Install ALSA development package (by distro)
+
+**Debian / Ubuntu**
+
+```bash
+sudo apt update
+sudo apt install -y libasound2-dev pkg-config
+```
+
+**RHEL / CentOS / Rocky / Alma**
+
+```bash
+sudo dnf install -y alsa-lib-devel pkgconf-pkg-config
+```
+
+**Arch Linux**
+
+```bash
+sudo pacman -S --needed alsa-lib pkgconf
+```
+
+**openSUSE**
+
+```bash
+sudo zypper install alsa-lib-devel pkg-config
+```
+
+
 ### 🚀 Recommended: Using [nupm](https://github.com/nushell/nupm)  
 
 ```bash
