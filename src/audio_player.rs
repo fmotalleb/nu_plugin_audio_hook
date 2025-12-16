@@ -58,7 +58,7 @@ impl SimplePluginCommand for SoundPlayCmd {
 fn play_audio(engine: &EngineInterface, call: &EvaluatedCall) -> Result<(), LabeledError> {
     let (file_span, file) = load_file(engine, call)?;
 
-    let output_stream = match OutputStreamBuilder::open_default_stream() {
+    let mut output_stream = match OutputStreamBuilder::open_default_stream() {
         Ok(value) => value,
         Err(err) => {
             return Err(
@@ -66,6 +66,8 @@ fn play_audio(engine: &EngineInterface, call: &EvaluatedCall) -> Result<(), Labe
             )
         }
     };
+
+    output_stream.log_on_drop(false);
 
     let source = match Decoder::try_from(file) {
         Ok(value) => value,
