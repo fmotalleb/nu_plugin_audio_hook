@@ -23,7 +23,7 @@ impl SimplePluginCommand for SoundMakeCmd {
             .named(
                 "amplify",
                 SyntaxShape::Float,
-                "amplify the sound by given value",
+                "amplify or attenuate the sound by given value (e.g. 0.5 for half volume)",
                 Some('a'),
             )
             .category(Category::Experimental)
@@ -33,6 +33,11 @@ impl SimplePluginCommand for SoundMakeCmd {
             Example {
                 description: "create a simple noise frequency",
                 example: "sound make 1000 200ms",
+                result: None,
+            },
+            Example {
+                description: "create a simple noise frequency with 50% volume",
+                example: "sound make 1000 200ms -a 0.5",
                 result: None,
             },
             Example {

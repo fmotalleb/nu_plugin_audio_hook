@@ -24,6 +24,12 @@ impl SimplePluginCommand for SoundPlayCmd {
                 "duration of file (mandatory for non-wave formats like mp3) (default 1 hour)",
                 Some('d'),
             )
+            .named(
+                "amplify",
+                SyntaxShape::Float,
+                "amplify or attenuate the sound by given value (e.g. 0.5 for half volume)",
+                Some('a'),
+            )
             .category(Category::Experimental)
     }
     fn examples(&self) -> Vec<Example<'_>> {
@@ -31,6 +37,16 @@ impl SimplePluginCommand for SoundPlayCmd {
             Example {
                 description: "play a sound and exits after 5min",
                 example: "sound play audio.mp4 -d 5min",
+                result: None,
+            },
+            Example {
+                description: "play a sound with 2x volume",
+                example: "sound play audio.mp3 -a 2.0",
+                result: None,
+            },
+            Example {
+                description: "play a sound with 50% volume",
+                example: "sound play audio.mp3 -a 0.5",
                 result: None,
             },
             Example {
@@ -78,8 +94,13 @@ fn play_audio(engine: &EngineInterface, call: &EvaluatedCall) -> Result<(), Labe
         }
     };
 
+    let amplify: f32 = match call.get_flag_value("amplify") {
+        Some(Value::Float { val, .. }) => val as f32,
+        _ => 1.0,
+    };
+
     let duration = source.total_duration();
-    output_stream.mixer().add(source);
+    output_stream.mixer().add(source.amplify(amplify));
 
     let sleep_duration: Duration = match load_duration_from(call, "duration") {
         Some(duration) => duration,
