@@ -113,7 +113,7 @@ fn make_sound(call: &EvaluatedCall) -> Result<Value, LabeledError> {
 
     if call
         .has_flag("data")
-        .map_err(|e| LabeledError::new(e.to_string()))?
+        .map_err(|e| LabeledError::new(e.to_string()).with_label("checking 'data' flag", call.head))?
     {
         let wav_data = generate_wav(frequency_value, duration_value, amplify_value)?;
         Ok(Value::binary(wav_data, call.head))
@@ -159,9 +159,24 @@ fn generate_wav(
         .collect();
 
     let bits_per_sample = 16u16;
-    let byte_rate = sample_rate * num_channels as u32 * bits_per_sample as u32 / 8;
-    let block_align = num_channels * bits_per_sample / 8;
-    let subchunk2_size = samples.len() as u32 * bits_per_sample as u32 / 8;
+    let byte_rate_u64 = sample_rate as u64 * num_channels as u64 * bits_per_sample as u64 / 8;
+    if byte_rate_u64 > u32::MAX as u64 {
+        return Err(LabeledError::new("WAV header overflow").with_label("byte_rate exceeds u32", Span::unknown()));
+    }
+    let byte_rate = byte_rate_u64 as u32;
+
+    let block_align_u64 = num_channels as u64 * bits_per_sample as u64 / 8;
+    if block_align_u64 > u16::MAX as u64 {
+        return Err(LabeledError::new("WAV header overflow").with_label("block_align exceeds u16", Span::unknown()));
+    }
+    let block_align = block_align_u64 as u16;
+
+    let subchunk2_size_u64 = samples.len() as u64 * bits_per_sample as u64 / 8;
+    if subchunk2_size_u64 > u32::MAX as u64 {
+        return Err(LabeledError::new("WAV data too large").with_label("exceeds u32 limit", Span::unknown()));
+    }
+    let subchunk2_size = subchunk2_size_u64 as u32;
+
     let chunk_size = 36 + subchunk2_size;
 
     let mut buffer = Vec::with_capacity(44 + subchunk2_size as usize);

@@ -16,7 +16,7 @@ pub fn resolve_filepath(
         Ok(PathBuf::from(current_path).join(file_path))
     }?
     .canonicalize()
-    .map_err(|e| LabeledError::new(e.to_string()).with_label("File not found", span))?;
+    .map_err(|e| LabeledError::new(e.to_string()).with_label("Failed to canonicalize path", span))?;
     Ok(file_path)
 }
 

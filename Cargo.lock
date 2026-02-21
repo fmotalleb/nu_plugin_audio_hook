@@ -1179,6 +1179,7 @@ dependencies = [
  "chrono",
  "id3",
  "lazy_static",
+ "log",
  "nu-plugin",
  "nu-protocol",
  "rodio",

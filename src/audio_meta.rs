@@ -1,4 +1,5 @@
 use id3::{Tag, TagLike};
+use log::warn;
 use nu_plugin::{EvaluatedCall, SimplePluginCommand};
 use nu_protocol::{record, Category, LabeledError, Record, Signature, Span, SyntaxShape, Value};
 use rodio::{Decoder, Source};
@@ -99,6 +100,10 @@ fn parse_meta(
         if let Some(d) = source.total_duration() {
             let nanos = d.as_nanos().try_into().unwrap_or(0);
             other.push("duration", Value::duration(nanos, call.head));
+        } else {
+            warn!("Duration unavailable for source");
+            other.push("duration", Value::nothing(call.head));
+            // TODO: fallback estimation by filesize
         }
         other.push("sample_rate", Value::int(source.sample_rate() as i64, call.head));
         other.push("channels", Value::int(source.channels() as i64, call.head));
@@ -149,6 +154,8 @@ fn audio_meta_set(engine: &nu_plugin::EngineInterface, call: &EvaluatedCall) -> 
         Err(_) => None,
     };
 
+    drop(file_value);
+
     if let Some(mut tags) = tags {
         tags.set_text(key, value);
 
@@ -158,7 +165,7 @@ fn audio_meta_set(engine: &nu_plugin::EngineInterface, call: &EvaluatedCall) -> 
         })?
     }
 
-    let file = std::fs::File::open(path.clone()).map_err(|e| {
+    let file = std::fs::File::open(&path).map_err(|e| {
         LabeledError::new(e.to_string()).with_label("error re-opening file for parsing", call.head)
     })?;
     parse_meta(call, file, path)
