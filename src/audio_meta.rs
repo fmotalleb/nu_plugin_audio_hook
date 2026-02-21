@@ -69,12 +69,16 @@ impl SimplePluginCommand for SoundMetaGetCmd {
         if let Ok(true) = call.has_flag("all") {
             return Ok(get_meta_records(call.head));
         }
-        parse_meta(engine, call)
+        let (_, file, path) = load_file(engine, call)?;
+        parse_meta(call, file, path)
     }
 }
 
-fn parse_meta(engine: &nu_plugin::EngineInterface, call: &EvaluatedCall) -> Result<Value, LabeledError> {
-    let (_, mut file_value, path) = load_file(engine, call)?;
+fn parse_meta(
+    call: &EvaluatedCall,
+    mut file_value: std::fs::File,
+    path: std::path::PathBuf,
+) -> Result<Value, LabeledError> {
     let file_size = file_value.metadata().map(|m| m.len()).unwrap_or(0);
 
     let tags = match Tag::read_from2(&mut file_value) {
@@ -122,7 +126,6 @@ fn parse_meta(engine: &nu_plugin::EngineInterface, call: &EvaluatedCall) -> Resu
     }
 
     Ok(Value::record(other, call.head))
-    // Ok(Value::nothing(call.head))
 }
 
 fn audio_meta_set(engine: &nu_plugin::EngineInterface, call: &EvaluatedCall) -> Result<Value, LabeledError> {
@@ -141,7 +144,7 @@ fn audio_meta_set(engine: &nu_plugin::EngineInterface, call: &EvaluatedCall) -> 
                 .with_label("cannot get value of value", call.head));
         }
     };
-    let tags = match Tag::read_from2(file_value) {
+    let tags = match Tag::read_from2(&file_value) {
         Ok(tags) => Some(tags),
         Err(_) => None,
     };
@@ -149,12 +152,16 @@ fn audio_meta_set(engine: &nu_plugin::EngineInterface, call: &EvaluatedCall) -> 
     if let Some(mut tags) = tags {
         tags.set_text(key, value);
 
-        let tr = tags.write_to_path(path, tags.version());
+        let tr = tags.write_to_path(&path, tags.version());
         tr.map_err(|e| {
             LabeledError::new(e.to_string()).with_label("error during writing", call.head)
         })?
     }
-    parse_meta(engine, call)
+
+    let file = std::fs::File::open(path.clone()).map_err(|e| {
+        LabeledError::new(e.to_string()).with_label("error re-opening file for parsing", call.head)
+    })?;
+    parse_meta(call, file, path)
 }
 fn insert_into_str(
     record: &mut Record,

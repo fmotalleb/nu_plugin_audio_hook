@@ -151,16 +151,17 @@ fn generate_wav(
     let source = SineWave::new(frequency)
         .take_duration(duration)
         .amplify(amplify);
-    let sample_rate = 48000u32;
+    let sample_rate = source.sample_rate();
+    let num_channels = source.channels();
+
     let samples: Vec<i16> = source
         .map(|s| (s.clamp(-1.0, 1.0) * i16::MAX as f32) as i16)
         .collect();
 
-    let num_channels = 1u16;
     let bits_per_sample = 16u16;
     let byte_rate = sample_rate * num_channels as u32 * bits_per_sample as u32 / 8;
     let block_align = num_channels * bits_per_sample / 8;
-    let subchunk2_size = samples.len() as u32 * num_channels as u32 * bits_per_sample as u32 / 8;
+    let subchunk2_size = samples.len() as u32 * bits_per_sample as u32 / 8;
     let chunk_size = 36 + subchunk2_size;
 
     let mut buffer = Vec::with_capacity(44 + subchunk2_size as usize);
@@ -183,7 +184,6 @@ fn generate_wav(
     // data subchunk
     buffer.extend_from_slice(b"data");
     buffer.extend_from_slice(&subchunk2_size.to_le_bytes());
-
     for sample in samples {
         buffer.extend_from_slice(&sample.to_le_bytes());
     }

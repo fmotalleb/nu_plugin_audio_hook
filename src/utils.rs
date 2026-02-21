@@ -1,6 +1,6 @@
 use nu_plugin::{EngineInterface, EvaluatedCall};
 use nu_protocol::{LabeledError, Span, Value};
-use std::{fs::File, path::PathBuf, str::FromStr};
+use std::{fs::File, path::PathBuf};
 
 pub fn resolve_filepath(
     engine: &EngineInterface,
@@ -13,13 +13,7 @@ pub fn resolve_filepath(
         let current_path = engine.get_current_dir().map_err(|e| {
             LabeledError::new(e.to_string()).with_label("Could not get current directory", span)
         })?;
-        let base = PathBuf::from_str(current_path.as_str()).map_err(|e| {
-            LabeledError::new(e.to_string()).with_label(
-                "Could not convert path provided by engine to PathBuf object (issue in nushell)",
-                span,
-            )
-        })?;
-        Ok(base.join(file_path))
+        Ok(PathBuf::from(current_path).join(file_path))
     }?
     .canonicalize()
     .map_err(|e| LabeledError::new(e.to_string()).with_label("File not found", span))?;
