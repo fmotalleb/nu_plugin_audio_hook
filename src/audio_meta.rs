@@ -1,10 +1,12 @@
 use id3::{Tag, TagLike};
-use nu_plugin::{self, EvaluatedCall, SimplePluginCommand};
+use nu_plugin::{EvaluatedCall, SimplePluginCommand};
 use nu_protocol::{record, Category, LabeledError, Record, Signature, Span, SyntaxShape, Value};
-use std::{fs::File, path::PathBuf};
+use rodio::{Decoder, Source};
+use std::io::Seek;
 
 use crate::{
     constants::{get_meta_records, ID3_HASHMAP},
+    utils::load_file,
     Sound,
 };
 pub struct SoundMetaSetCmd;
@@ -30,11 +32,11 @@ impl SimplePluginCommand for SoundMetaSetCmd {
     fn run(
         &self,
         _plugin: &Self::Plugin,
-        _engine: &nu_plugin::EngineInterface,
+        engine: &nu_plugin::EngineInterface,
         call: &EvaluatedCall,
         _input: &Value,
     ) -> Result<Value, nu_protocol::LabeledError> {
-        audio_meta_set(call)
+        audio_meta_set(engine, call)
     }
 }
 
@@ -60,42 +62,44 @@ impl SimplePluginCommand for SoundMetaGetCmd {
     fn run(
         &self,
         _plugin: &Self::Plugin,
-        _engine: &nu_plugin::EngineInterface,
+        engine: &nu_plugin::EngineInterface,
         call: &EvaluatedCall,
         _input: &Value,
     ) -> Result<Value, nu_protocol::LabeledError> {
         if let Ok(true) = call.has_flag("all") {
             return Ok(get_meta_records(call.head));
         }
-        parse_meta(call)
+        parse_meta(engine, call)
     }
 }
 
-fn parse_meta(call: &EvaluatedCall) -> Result<Value, LabeledError> {
-    let (_, file_value) = match load_file(call) {
-        Ok(value) => value,
-        Err(value) => return value,
-    };
-    let tags = match Tag::read_from2(file_value) {
+fn parse_meta(engine: &nu_plugin::EngineInterface, call: &EvaluatedCall) -> Result<Value, LabeledError> {
+    let (_, mut file_value, path) = load_file(engine, call)?;
+    let file_size = file_value.metadata().map(|m| m.len()).unwrap_or(0);
+
+    let tags = match Tag::read_from2(&mut file_value) {
         Ok(tags) => Some(tags),
         Err(_) => None,
     };
     let mut other = record! {};
-    let (_, file_value) = match load_file(call) {
-        Ok(value) => value,
-        Err(value) => return value,
-    };
+    if let Err(e) = file_value.rewind() {
+        return Err(LabeledError::new(e.to_string()).with_label("error seeking file", call.head));
+    }
 
-    let duration = match mp3_duration::from_file(&file_value) {
-        Ok(duration) => duration,
-        Err(err) => err.at_duration,
-    };
-    let duration_nanos = duration.as_nanos().try_into().map_err(|e| {
-        LabeledError::new(format!("Failed to convert duration: {e}"))
-            .with_label("duration conversion error", call.head)
-    })?;
-    other.push("duration", Value::duration(duration_nanos, call.head));
-    // let info;
+    other.push("size", Value::filesize(file_size as i64, call.head));
+    if let Some(ext) = path.extension() {
+        other.push("format", Value::string(ext.to_string_lossy().to_string(), call.head));
+    }
+
+    if let Ok(source) = Decoder::try_from(file_value) {
+        if let Some(d) = source.total_duration() {
+            let nanos = d.as_nanos().try_into().unwrap_or(0);
+            other.push("duration", Value::duration(nanos, call.head));
+        }
+        other.push("sample_rate", Value::int(source.sample_rate() as i64, call.head));
+        other.push("channels", Value::int(source.channels() as i64, call.head));
+    }
+
     match tags {
         Some(tags) => {
             for (key, val) in ID3_HASHMAP.iter() {
@@ -108,20 +112,11 @@ fn parse_meta(call: &EvaluatedCall) -> Result<Value, LabeledError> {
                     )
                 }
             }
-            // insert_into_str(&mut other, "artist", tags.artist(), call.head);
-            // insert_into_str(&mut other, "title", tags.title(), call.head);
-            // insert_into_str(&mut other, "genre", tags.genre(), call.head);
-            // insert_into_str(&mut other, "album", tags.album(), call.head);
-            // insert_into_str(&mut other, "album_artist", tags.album_artist(), call.head);
 
             insert_into_integer(&mut other, "track_no", tags.track(), call.head);
             insert_into_integer(&mut other, "total_tracks", tags.total_tracks(), call.head);
             insert_into_integer(&mut other, "disc_no", tags.disc(), call.head);
             insert_into_integer(&mut other, "total_discs", tags.total_discs(), call.head);
-
-            // //TODO - need conversion
-            // insert_into_date(&mut other, "date_recorded", tags.date_recorded(), call.head);
-            // insert_into_date(&mut other, "date_released", tags.date_released(), call.head);
         }
         None => {}
     }
@@ -130,11 +125,8 @@ fn parse_meta(call: &EvaluatedCall) -> Result<Value, LabeledError> {
     // Ok(Value::nothing(call.head))
 }
 
-fn audio_meta_set(call: &EvaluatedCall) -> Result<Value, LabeledError> {
-    let (_, file_value) = match load_file(call) {
-        Ok(value) => value,
-        Err(value) => return value,
-    };
+fn audio_meta_set(engine: &nu_plugin::EngineInterface, call: &EvaluatedCall) -> Result<Value, LabeledError> {
+    let (_, file_value, path) = load_file(engine, call)?;
     let key = match call.get_flag_value("key") {
         Some(Value::String { val, .. }) => val,
         _ => {
@@ -157,16 +149,12 @@ fn audio_meta_set(call: &EvaluatedCall) -> Result<Value, LabeledError> {
     if let Some(mut tags) = tags {
         tags.set_text(key, value);
 
-        let (_, path) = match load_file_path(call) {
-            Ok(value) => value,
-            Err(value) => return value,
-        };
         let tr = tags.write_to_path(path, tags.version());
         tr.map_err(|e| {
             LabeledError::new(e.to_string()).with_label("error during writing", call.head)
         })?
     }
-    parse_meta(call)
+    parse_meta(engine, call)
 }
 fn insert_into_str(
     record: &mut Record,
@@ -180,52 +168,9 @@ fn insert_into_str(
     }
 }
 
-// fn insert_into_date(record: &mut Record, name: &str, val: Option<Timestamp>, span: Span) {
-//     match val {
-//         Some(val) => record.push(name, Value::string(val.to_string(), span)),
-//         None => {}
-//     }
-// }
 fn insert_into_integer(record: &mut Record, name: &str, val: Option<u32>, span: Span) {
     match val {
         Some(val) => record.push(name, Value::int(val.into(), span)),
         None => {}
     }
-}
-
-fn load_file(
-    call: &EvaluatedCall,
-) -> Result<(nu_protocol::Span, File), Result<Value, LabeledError>> {
-    let (span, path) = match load_file_path(call) {
-        Ok(value) => value,
-        Err(value) => return Err(value),
-    };
-    let file_value: File = match File::open(path) {
-        Ok(file) => file,
-        Err(err) => {
-            return Err(Err(
-                LabeledError::new(err.to_string()).with_label("file value error", span)
-            ))
-        }
-    };
-    Ok((span, file_value))
-}
-fn load_file_path(
-    call: &EvaluatedCall,
-) -> Result<(nu_protocol::Span, PathBuf), Result<Value, LabeledError>> {
-    let file: Value = match call.req(0) {
-        Ok(value) => value,
-        Err(err) => {
-            return Err(Err(LabeledError::new(err.to_string())
-                .with_label("Frequency value not found", call.head)))
-        }
-    };
-    let file_span = file.span();
-    let mut loader = File::options();
-    loader.write(true);
-    let path_value: PathBuf = match file {
-        Value::String { val, .. } => PathBuf::from(val),
-        _ => return Err(Err(LabeledError::new("cannot get file path".to_string()))),
-    };
-    Ok((file_span, path_value))
 }
