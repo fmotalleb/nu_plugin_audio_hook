@@ -1,11 +1,11 @@
 use chrono::Utc;
-use nu_plugin::{self, EngineInterface, EvaluatedCall, SimplePluginCommand};
-use nu_protocol::{Category, Example, LabeledError, Signature, Span, SyntaxShape, Value};
+use nu_plugin::{EngineInterface, EvaluatedCall, SimplePluginCommand};
+use nu_protocol::{Category, Example, LabeledError, Signature, SyntaxShape, Value};
 use rodio::{source::Source, Decoder, OutputStreamBuilder};
 
-use std::{fs::File, path::PathBuf, str::FromStr, time::Duration};
+use std::time::Duration;
 
-use crate::Sound;
+use crate::{utils::load_file, Sound};
 
 pub struct SoundPlayCmd;
 impl SimplePluginCommand for SoundPlayCmd {
@@ -57,7 +57,7 @@ impl SimplePluginCommand for SoundPlayCmd {
         ]
     }
     fn description(&self) -> &str {
-        "play an audio file, by default supports flac,Wav,mp3 and ogg files, install plugin with `all-decoders` feature to include aac and mp4(audio)"
+        "play an audio file, by default supports FLAC, WAV, MP3 and OGG files, install plugin with `all-decoders` feature to include AAC and MP4(audio)"
     }
 
     fn run(
@@ -72,7 +72,7 @@ impl SimplePluginCommand for SoundPlayCmd {
 }
 
 fn play_audio(engine: &EngineInterface, call: &EvaluatedCall) -> Result<(), LabeledError> {
-    let (file_span, file) = load_file(engine, call)?;
+    let (file_span, file, _) = load_file(engine, call)?;
 
     let mut output_stream = match OutputStreamBuilder::open_default_stream() {
         Ok(value) => value,
@@ -124,54 +124,8 @@ fn play_audio(engine: &EngineInterface, call: &EvaluatedCall) -> Result<(), Labe
 fn load_duration_from(call: &EvaluatedCall, name: &str) -> Option<Duration> {
     match call.get_flag_value(name) {
         Some(Value::Duration { val, .. }) => {
-            Some(Duration::from_nanos(u64::from_ne_bytes(val.to_ne_bytes())))
+            Some(Duration::from_nanos(val.try_into().unwrap_or(0)))
         }
         _ => None,
     }
-}
-
-fn load_file(engine: &EngineInterface, call: &EvaluatedCall) -> Result<(Span, File), LabeledError> {
-    let file_path: Value = call.req(0).map_err(|e| {
-        LabeledError::new(e.to_string()).with_label("Expected file path", call.head)
-    })?;
-
-    let span = file_path.span();
-
-    let file_path = match file_path {
-        Value::String { val, .. } => PathBuf::from_str(&val)
-            .map_err(|e| LabeledError::new(e.to_string()).with_label("Invalid path format", span)),
-        _ => Err(LabeledError::new("invalid input").with_label("Expected file path", span)),
-    }?;
-
-    let file_path = resolve_filepath(engine, span, file_path)?;
-
-    let file_handle = File::open(file_path).map_err(|e| {
-        LabeledError::new(e.to_string()).with_label("error trying to open the file", span)
-    })?;
-
-    Ok((span, file_handle))
-}
-
-fn resolve_filepath(
-    engine: &EngineInterface,
-    span: Span,
-    file_path: PathBuf,
-) -> Result<PathBuf, LabeledError> {
-    let file_path = if file_path.is_absolute() {
-        Ok::<PathBuf, LabeledError>(file_path)
-    } else {
-        let current_path = engine.get_current_dir().map_err(|e| {
-            LabeledError::new(e.to_string()).with_label("Could not get current directory", span)
-        })?;
-        let base = PathBuf::from_str(current_path.as_str()).map_err(|e| {
-            LabeledError::new(e.to_string()).with_label(
-                "Could not convert path provided by engine to PathBuf object (issue in nushell)",
-                span,
-            )
-        })?;
-        Ok(base.join(file_path))
-    }?
-    .canonicalize()
-    .map_err(|e| LabeledError::new(e.to_string()).with_label("File not found", span))?;
-    Ok(file_path)
 }

@@ -1,4 +1,4 @@
-use nu_plugin::{self, EvaluatedCall, SimplePluginCommand};
+use nu_plugin::{EvaluatedCall, SimplePluginCommand};
 use nu_protocol::{Category, Example, LabeledError, Signature, Span, SyntaxShape, Value};
 use rodio::source::{SineWave, Source};
 use rodio::{OutputStreamBuilder, Sink};
@@ -19,12 +19,17 @@ impl SimplePluginCommand for SoundMakeCmd {
     fn signature(&self) -> nu_protocol::Signature {
         Signature::new("sound make")
             .required("Frequency", SyntaxShape::Float, "Frequency of the noise")
-            .required("duration", SyntaxShape::Duration, "duration of the noise")
+            .required("Duration", SyntaxShape::Duration, "Duration of the noise")
             .named(
                 "amplify",
                 SyntaxShape::Float,
                 "amplify or attenuate the sound by given value (e.g. 0.5 for half volume)",
                 Some('a'),
+            )
+            .switch(
+                "data",
+                "output binary data (WAV) instead of playing",
+                Some('d'),
             )
             .category(Category::Experimental)
     }
@@ -44,6 +49,11 @@ impl SimplePluginCommand for SoundMakeCmd {
                 description: "create a simple noise sequence",
                 example:
                     "[ 300.0, 500.0,  1000.0, 400.0, 600.0 ] | each { |it| sound make $it 150ms }",
+                result: None,
+            },
+            Example {
+                description: "save a noise to a file",
+                example: "sound make 1000 200ms --data | save --raw output.wav",
                 result: None,
             },
         ]
@@ -99,13 +109,18 @@ impl SimplePluginCommand for SoundBeepCmd {
 }
 
 fn make_sound(call: &EvaluatedCall) -> Result<Value, LabeledError> {
-    let (frequency_value, duration_value, amplify_value) = match load_values(call) {
-        Ok(value) => value,
-        Err(value) => return value,
-    };
+    let (frequency_value, duration_value, amplify_value) = load_values(call)?;
 
-    sine_wave(frequency_value, duration_value, amplify_value)?;
-    Ok(Value::nothing(call.head))
+    if call
+        .has_flag("data")
+        .map_err(|e| LabeledError::new(e.to_string()).with_label("checking 'data' flag", call.head))?
+    {
+        let wav_data = generate_wav(frequency_value, duration_value, amplify_value)?;
+        Ok(Value::binary(wav_data, call.head))
+    } else {
+        sine_wave(frequency_value, duration_value, amplify_value)?;
+        Ok(Value::nothing(call.head))
+    }
 }
 
 fn sine_wave(
@@ -128,57 +143,116 @@ fn sine_wave(
     Ok(())
 }
 
-fn load_values(call: &EvaluatedCall) -> Result<(f32, Duration, f32), Result<Value, LabeledError>> {
-    let frequency: Value = match call.req(0) {
-        Ok(value) => value,
-        Err(err) => {
-            return Err(Err(LabeledError::new(err.to_string())
-                .with_label("Frequency value not found", call.head)))
-        }
-    };
+fn generate_wav(
+    frequency: f32,
+    duration: Duration,
+    amplify: f32,
+) -> Result<Vec<u8>, LabeledError> {
+    let source = SineWave::new(frequency)
+        .take_duration(duration)
+        .amplify(amplify);
+    let sample_rate = source.sample_rate();
+    let num_channels = source.channels();
+
+    let samples: Vec<i16> = source
+        .map(|s| (s.clamp(-1.0, 1.0) * i16::MAX as f32) as i16)
+        .collect();
+
+    let bits_per_sample = 16u16;
+    let byte_rate_u64 = sample_rate as u64 * num_channels as u64 * bits_per_sample as u64 / 8;
+    if byte_rate_u64 > u32::MAX as u64 {
+        return Err(LabeledError::new("WAV header overflow").with_label("byte_rate exceeds u32", Span::unknown()));
+    }
+    let byte_rate = byte_rate_u64 as u32;
+
+    let block_align_u64 = num_channels as u64 * bits_per_sample as u64 / 8;
+    if block_align_u64 > u16::MAX as u64 {
+        return Err(LabeledError::new("WAV header overflow").with_label("block_align exceeds u16", Span::unknown()));
+    }
+    let block_align = block_align_u64 as u16;
+
+    let subchunk2_size_u64 = samples.len() as u64 * bits_per_sample as u64 / 8;
+    if subchunk2_size_u64 > u32::MAX as u64 {
+        return Err(LabeledError::new("WAV data too large").with_label("exceeds u32 limit", Span::unknown()));
+    }
+    let subchunk2_size = subchunk2_size_u64 as u32;
+
+    let chunk_size = 36u32.checked_add(subchunk2_size).ok_or_else(|| {
+        LabeledError::new("WAV header overflow").with_label("chunk_size overflow", Span::unknown())
+    })?;
+
+    let mut buffer = Vec::with_capacity(44 + subchunk2_size as usize);
+
+    // RIFF header
+    buffer.extend_from_slice(b"RIFF");
+    buffer.extend_from_slice(&chunk_size.to_le_bytes());
+    buffer.extend_from_slice(b"WAVE");
+
+    // fmt subchunk
+    buffer.extend_from_slice(b"fmt ");
+    buffer.extend_from_slice(&16u32.to_le_bytes()); // Subchunk1Size for PCM
+    buffer.extend_from_slice(&1u16.to_le_bytes()); // AudioFormat (1 = PCM)
+    buffer.extend_from_slice(&num_channels.to_le_bytes());
+    buffer.extend_from_slice(&sample_rate.to_le_bytes());
+    buffer.extend_from_slice(&byte_rate.to_le_bytes());
+    buffer.extend_from_slice(&block_align.to_le_bytes());
+    buffer.extend_from_slice(&bits_per_sample.to_le_bytes());
+
+    // data subchunk
+    buffer.extend_from_slice(b"data");
+    buffer.extend_from_slice(&subchunk2_size.to_le_bytes());
+    for sample in samples {
+        buffer.extend_from_slice(&sample.to_le_bytes());
+    }
+
+    Ok(buffer)
+}
+
+fn load_values(call: &EvaluatedCall) -> Result<(f32, Duration, f32), LabeledError> {
+    let frequency: Value = call.req(0).map_err(|err| {
+        LabeledError::new(err.to_string()).with_label("Frequency value not found", call.head)
+    })?;
+
     let frequency_value: f32 = match frequency.as_float() {
         Ok(value) => value as f32,
         Err(err) => {
-            return Err(Err(LabeledError::new(err.to_string()).with_label(
+            return Err(LabeledError::new(err.to_string()).with_label(
                 "Frequency value must be of type Float (f32)",
                 frequency.span(),
-            )))
+            ))
         }
     };
-    let duration: Value = match call.req(1) {
-        Ok(value) => value,
-        Err(err) => {
-            return Err(Err(LabeledError::new(err.to_string())
-                .with_label("Duration value not found", call.head)))
-        }
-    };
+    let duration: Value = call.req(1).map_err(|err| {
+        LabeledError::new(err.to_string()).with_label("Duration value not found", call.head)
+    })?;
+
+    let dur_span = duration.span();
     let duration_value = match duration {
-        Value::Duration { val, .. } => Duration::from_nanos(val.try_into().unwrap_or(0)),
+        Value::Duration { val, .. } => {
+            if val < 0 {
+                return Err(LabeledError::new("Negative duration").with_label("Negative duration", dur_span));
+            }
+            Duration::from_nanos(val as u64)
+        }
         _ => {
-            return Err(Err(LabeledError::new(
-                "cannot parse duration value as Duration",
-            )))
+            return Err(LabeledError::new("cannot parse duration value as Duration")
+                .with_label("Expected duration", dur_span))
         }
     };
 
     let amplify: Value = match call.get_flag("amplify") {
         Ok(value) => match value {
             Some(value) => value,
-            None => Value::float(1.0, Span::unknown()),
+            None => Value::float(1.0, call.head),
         },
         Err(err) => {
-            return Err(Err(LabeledError::new(err.to_string())
-                .with_label("Duration value not found", call.head)))
+            return Err(LabeledError::new(err.to_string())
+                .with_label("Amplify value error", call.head))
         }
     };
-    let amplify_value: f32 = match amplify.as_float() {
-        Ok(value) => value as f32,
-        Err(err) => {
-            return Err(Err(LabeledError::new(err.to_string()).with_label(
-                "Amplify value must be of type Float (f32)",
-                amplify.span(),
-            )))
-        }
-    };
+    let amplify_value: f32 = amplify.as_float().map_err(|err| {
+        LabeledError::new(err.to_string())
+            .with_label("Amplify value must be of type Float (f32)", amplify.span())
+    })? as f32;
     Ok((frequency_value, duration_value, amplify_value))
 }
