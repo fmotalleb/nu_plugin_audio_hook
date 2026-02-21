@@ -53,7 +53,7 @@ impl SimplePluginCommand for SoundMakeCmd {
             },
             Example {
                 description: "save a noise to a file",
-                example: "sound make 1000 200ms --data | save output.wav",
+                example: "sound make 1000 200ms --data | save --raw output.wav",
                 result: None,
             },
         ]
