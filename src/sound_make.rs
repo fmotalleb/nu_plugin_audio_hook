@@ -226,16 +226,17 @@ fn load_values(call: &EvaluatedCall) -> Result<(f32, Duration, f32), LabeledErro
         LabeledError::new(err.to_string()).with_label("Duration value not found", call.head)
     })?;
 
+    let dur_span = duration.span();
     let duration_value = match duration {
         Value::Duration { val, .. } => {
             if val < 0 {
-                return Err(LabeledError::new("Negative duration").with_label("Negative duration", duration.span()));
+                return Err(LabeledError::new("Negative duration").with_label("Negative duration", dur_span));
             }
             Duration::from_nanos(val as u64)
         }
         _ => {
             return Err(LabeledError::new("cannot parse duration value as Duration")
-                .with_label("Expected duration", duration.span()))
+                .with_label("Expected duration", dur_span))
         }
     };
 
