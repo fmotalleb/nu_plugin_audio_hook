@@ -64,7 +64,7 @@ lazy_static! {
         ("originalreleasetime", "TDOR"),
         ("releasetime", "TDRL"),
         ("taggingtime", "TDTG"),
-        ("year", "TDRC")
+        ("recordingyear", "TDRC")
     ]);
 }
 pub fn get_meta_records(span: Span) -> Value {
