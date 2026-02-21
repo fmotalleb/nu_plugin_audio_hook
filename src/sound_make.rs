@@ -19,7 +19,7 @@ impl SimplePluginCommand for SoundMakeCmd {
     fn signature(&self) -> nu_protocol::Signature {
         Signature::new("sound make")
             .required("Frequency", SyntaxShape::Float, "Frequency of the noise")
-            .required("duration", SyntaxShape::Duration, "duration of the noise")
+            .required("duration", SyntaxShape::Duration, "Duration of the noise")
             .named(
                 "amplify",
                 SyntaxShape::Float,

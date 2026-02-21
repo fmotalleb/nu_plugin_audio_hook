@@ -26,7 +26,7 @@ impl SimplePluginCommand for SoundMetaSetCmd {
     }
 
     fn description(&self) -> &str {
-        "set a id3 frame on an audio file"
+        "set an ID3 frame on an audio file"
     }
 
     fn run(
@@ -56,7 +56,7 @@ impl SimplePluginCommand for SoundMetaGetCmd {
     }
 
     fn description(&self) -> &str {
-        "get duration and meta data of an audio file"
+        "get duration and metadata of an audio file"
     }
 
     fn run(

@@ -10,9 +10,6 @@ version = "1.16.3"
 [dependencies.lazy_static]
 version = "1.4.0"
 
-[dependencies.mp3-duration]
-version = "0.1.10"
-
 [dependencies.nu-protocol]
 features = ["plugin"]
 version = "0.110.0"

@@ -57,7 +57,7 @@ impl SimplePluginCommand for SoundPlayCmd {
         ]
     }
     fn description(&self) -> &str {
-        "play an audio file, by default supports flac,Wav,mp3 and ogg files, install plugin with `all-decoders` feature to include aac and mp4(audio)"
+        "play an audio file, by default supports FLAC, WAV, MP3 and OGG files, install plugin with `all-decoders` feature to include AAC and MP4(audio)"
     }
 
     fn run(
