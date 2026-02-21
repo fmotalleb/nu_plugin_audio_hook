@@ -109,25 +109,22 @@ fn parse_meta(
         other.push("channels", Value::int(source.channels() as i64, call.head));
     }
 
-    match tags {
-        Some(tags) => {
-            for (key, val) in ID3_HASHMAP.iter() {
-                if let Some(result) = tags.get(val) {
-                    insert_into_str(
-                        &mut other,
-                        key,
-                        Some(result.content().to_string()),
-                        call.head,
-                    )
-                }
+    if let Some(tags) = tags {
+        for (key, val) in ID3_HASHMAP.iter() {
+            if let Some(result) = tags.get(val) {
+                insert_into_str(
+                    &mut other,
+                    key,
+                    Some(result.content().to_string()),
+                    call.head,
+                )
             }
-
-            insert_into_integer(&mut other, "track_no", tags.track(), call.head);
-            insert_into_integer(&mut other, "total_tracks", tags.total_tracks(), call.head);
-            insert_into_integer(&mut other, "disc_no", tags.disc(), call.head);
-            insert_into_integer(&mut other, "total_discs", tags.total_discs(), call.head);
         }
-        None => {}
+
+        insert_into_integer(&mut other, "track_no", tags.track(), call.head);
+        insert_into_integer(&mut other, "total_tracks", tags.total_tracks(), call.head);
+        insert_into_integer(&mut other, "disc_no", tags.disc(), call.head);
+        insert_into_integer(&mut other, "total_discs", tags.total_discs(), call.head);
     }
 
     Ok(Value::record(other, call.head))
@@ -149,21 +146,19 @@ fn audio_meta_set(engine: &nu_plugin::EngineInterface, call: &EvaluatedCall) -> 
                 .with_label("cannot get value of value", call.head));
         }
     };
-    let tags = match Tag::read_from2(&file_value) {
-        Ok(tags) => Some(tags),
-        Err(_) => None,
+    let mut tags = match Tag::read_from2(&file_value) {
+        Ok(tags) => tags,
+        Err(_) => Tag::new(),
     };
 
     drop(file_value);
 
-    if let Some(mut tags) = tags {
-        tags.set_text(key, value);
+    tags.set_text(key, value);
 
-        let tr = tags.write_to_path(&path, tags.version());
-        tr.map_err(|e| {
-            LabeledError::new(e.to_string()).with_label("error during writing", call.head)
-        })?
-    }
+    let tr = tags.write_to_path(&path, tags.version());
+    tr.map_err(|e| {
+        LabeledError::new(e.to_string()).with_label("error during writing", call.head)
+    })?;
 
     let file = std::fs::File::open(&path).map_err(|e| {
         LabeledError::new(e.to_string()).with_label("error re-opening file for parsing", call.head)
@@ -176,15 +171,13 @@ fn insert_into_str(
     val: Option<impl AsRef<str>>,
     span: Span,
 ) {
-    match val {
-        Some(val) => record.push(name.as_ref(), Value::string(val.as_ref(), span)),
-        None => {}
+    if let Some(val) = val {
+        record.push(name.as_ref(), Value::string(val.as_ref(), span));
     }
 }
 
 fn insert_into_integer(record: &mut Record, name: &str, val: Option<u32>, span: Span) {
-    match val {
-        Some(val) => record.push(name, Value::int(val.into(), span)),
-        None => {}
+    if let Some(val) = val {
+        record.push(name, Value::int(val.into(), span));
     }
 }

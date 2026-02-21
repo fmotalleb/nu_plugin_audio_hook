@@ -19,7 +19,7 @@ impl SimplePluginCommand for SoundMakeCmd {
     fn signature(&self) -> nu_protocol::Signature {
         Signature::new("sound make")
             .required("Frequency", SyntaxShape::Float, "Frequency of the noise")
-            .required("duration", SyntaxShape::Duration, "Duration of the noise")
+            .required("Duration", SyntaxShape::Duration, "Duration of the noise")
             .named(
                 "amplify",
                 SyntaxShape::Float,
@@ -177,7 +177,9 @@ fn generate_wav(
     }
     let subchunk2_size = subchunk2_size_u64 as u32;
 
-    let chunk_size = 36 + subchunk2_size;
+    let chunk_size = 36u32.checked_add(subchunk2_size).ok_or_else(|| {
+        LabeledError::new("WAV header overflow").with_label("chunk_size overflow", Span::unknown())
+    })?;
 
     let mut buffer = Vec::with_capacity(44 + subchunk2_size as usize);
 
@@ -225,7 +227,12 @@ fn load_values(call: &EvaluatedCall) -> Result<(f32, Duration, f32), LabeledErro
     })?;
 
     let duration_value = match duration {
-        Value::Duration { val, .. } => Duration::from_nanos(val.try_into().unwrap_or(0)),
+        Value::Duration { val, .. } => {
+            if val < 0 {
+                return Err(LabeledError::new("Negative duration").with_label("Negative duration", duration.span()));
+            }
+            Duration::from_nanos(val as u64)
+        }
         _ => {
             return Err(LabeledError::new("cannot parse duration value as Duration")
                 .with_label("Expected duration", duration.span()))
