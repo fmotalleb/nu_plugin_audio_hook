@@ -61,7 +61,7 @@ sound play audio.mp3 -a 0.5
 ### Retrieve metadata from an audio file
 
 ```bash
-sound meta audio.mp4
+sound meta audio.mp3
 ```
 
 Example output:
@@ -88,16 +88,16 @@ Example output:
 sound meta set audio.mp3 -k TPE1 -v new-artist
 ```
 
-### Play an MP3 file using its metadata duration
+### Play an audio file using its metadata duration
 
 ```bash
-sound meta audio.mp4 | sound play audio.mp3 -d $in.duration
+sound meta audio.mp3 | sound play audio.mp3 -d $in.duration
 ```
 
 ### List all available ID3 frame names
 
 ```bash
-sound meta list
+sound meta --all
 ```
 
 ---
@@ -181,3 +181,4 @@ You can enable specific features when compiling or installing:
   - `symphonia-mp3` (default) — MP3 decoding.
   - `symphonia-vorbis` — OGG Vorbis decoding.
   - `symphonia-wav` — WAV decoding.
+  
