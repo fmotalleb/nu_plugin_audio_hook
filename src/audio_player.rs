@@ -12,7 +12,7 @@ use rodio::{source::Source, Decoder, OutputStreamBuilder, Sink};
 
 use std::io::{stderr, Write};
 use std::time::{Duration, Instant};
-use unicode_width::UnicodeWidthStr;
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use crate::{utils::load_file, Sound};
 
@@ -308,7 +308,16 @@ fn wait_with_progress(
         let display_header = if full_header.width() > term_width {
             let ellipsis = if icons == IconSet::Ascii { "..." } else { "…" };
             let max_len = term_width.saturating_sub(ellipsis.width());
-            let truncated: String = full_header.chars().take(max_len).collect();
+            let mut width = 0;
+            let mut truncated = String::new();
+            for c in full_header.chars() {
+                let w = c.width().unwrap_or(0);
+                if width + w > max_len {
+                    break;
+                }
+                width += w;
+                truncated.push(c);
+            }
             format!("{}{}", truncated, ellipsis)
         } else {
             full_header
@@ -331,7 +340,7 @@ fn wait_with_progress(
             }
             last_tick = now;
 
-            if position >= total && sink.empty() {
+            if position >= total || sink.empty() {
                 break;
             }
 
@@ -606,7 +615,7 @@ fn terminal_supports_unicode() -> bool {
 
 fn load_duration_from(call: &EvaluatedCall, name: &str) -> Option<Duration> {
     match call.get_flag_value(name) {
-        Some(Value::Duration { val, .. }) => Some(Duration::from_nanos(val.try_into().unwrap_or(0))),
+        Some(Value::Duration { val, .. }) if val >= 0 => Some(Duration::from_nanos(val as u64)),
         _ => None,
     }
 }
