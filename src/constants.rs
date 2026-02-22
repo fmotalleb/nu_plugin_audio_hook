@@ -1,39 +1,71 @@
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::sync::LazyLock;
 
 use lofty::tag::ItemKey;
 use nu_protocol::{record, Span, Value};
 
-pub static TAG_MAP: LazyLock<HashMap<&'static str, ItemKey>> = LazyLock::new(|| {
-    HashMap::from([
-        ("album", ItemKey::AlbumTitle),
-        ("albumartist", ItemKey::AlbumArtist),
-        ("albumsortorder", ItemKey::AlbumTitleSortOrder),
-        ("artist", ItemKey::TrackArtist),
-        ("bpm", ItemKey::Bpm),
-        ("composer", ItemKey::Composer),
-        ("conductor", ItemKey::Conductor),
-        ("copyright", ItemKey::CopyrightMessage),
-        ("date", ItemKey::RecordingDate),
-        ("discnumber", ItemKey::DiscNumber),
-        ("encodedby", ItemKey::EncodedBy),
-        ("encodingsettings", ItemKey::EncoderSettings),
-        ("genre", ItemKey::Genre),
-        ("grouping", ItemKey::ContentGroup),
-        ("initialkey", ItemKey::InitialKey),
-        ("isrc", ItemKey::Isrc),
-        ("language", ItemKey::Language),
-        ("lyricist", ItemKey::Lyricist),
-        ("mood", ItemKey::Mood),
-        ("organization", ItemKey::Publisher),
-        ("originalalbum", ItemKey::OriginalAlbumTitle),
-        ("originalartist", ItemKey::OriginalArtist),
-        ("originalyear", ItemKey::OriginalReleaseDate),
-        ("setsubtitle", ItemKey::SetSubtitle),
-        ("title", ItemKey::TrackTitle),
-        ("titlesortorder", ItemKey::TrackTitleSortOrder),
-        ("track", ItemKey::TrackNumber),
-        ("year", ItemKey::Year),
+pub static TAG_MAP: LazyLock<BTreeMap<&'static str, ItemKey>> = LazyLock::new(|| {
+    BTreeMap::from([
+        // Core identity
+        ("album",              ItemKey::AlbumTitle),
+        ("albumartist",        ItemKey::AlbumArtist),
+        ("albumsortorder",     ItemKey::AlbumTitleSortOrder),
+        ("artist",             ItemKey::TrackArtist),
+        ("artistsortorder",    ItemKey::TrackArtistSortOrder),
+        ("title",              ItemKey::TrackTitle),
+        ("titlesortorder",     ItemKey::TrackTitleSortOrder),
+        ("subtitle",           ItemKey::TrackSubtitle),
+        ("setsubtitle",        ItemKey::SetSubtitle),
+
+        // People
+        ("composer",           ItemKey::Composer),
+        ("composersortorder",  ItemKey::ComposerSortOrder),
+        ("conductor",          ItemKey::Conductor),
+        ("label",              ItemKey::Label),
+        ("lyricist",           ItemKey::Lyricist),
+        ("movement",           ItemKey::Movement),
+        ("movementnumber",     ItemKey::MovementNumber),
+        ("movementtotal",      ItemKey::MovementTotal),
+        ("organization",       ItemKey::Publisher),
+        ("producer",           ItemKey::Producer),
+        ("remixer",            ItemKey::Remixer),
+        ("work",               ItemKey::Work),
+
+        // Dates
+        ("date",               ItemKey::RecordingDate),
+        ("originalyear",       ItemKey::OriginalReleaseDate),
+        ("releasedate",        ItemKey::ReleaseDate),
+        ("year",               ItemKey::Year),
+
+        // Identifiers
+        ("barcode",            ItemKey::Barcode),
+        ("cataloguenumber",    ItemKey::CatalogNumber),
+        ("isrc",               ItemKey::Isrc),
+
+        // Style & content
+        ("bpm",                ItemKey::Bpm),
+        ("comment",            ItemKey::Comment),
+        ("compilation",        ItemKey::FlagCompilation),
+        ("copyright",          ItemKey::CopyrightMessage),
+        ("encodedby",          ItemKey::EncodedBy),
+        ("encodingsettings",   ItemKey::EncoderSettings),
+        ("genre",              ItemKey::Genre),
+        ("grouping",           ItemKey::ContentGroup),
+        ("initialkey",         ItemKey::InitialKey),
+        ("language",           ItemKey::Language),
+        ("lyrics",             ItemKey::Lyrics),
+        ("mood",               ItemKey::Mood),
+        ("originalalbum",      ItemKey::OriginalAlbumTitle),
+        ("originalartist",     ItemKey::OriginalArtist),
+        ("script",             ItemKey::Script),
+        ("track",              ItemKey::TrackNumber),
+        ("discnumber",         ItemKey::DiscNumber),
+
+        // ReplayGain
+        ("replaygain_album_gain",  ItemKey::ReplayGainAlbumGain),
+        ("replaygain_album_peak",  ItemKey::ReplayGainAlbumPeak),
+        ("replaygain_track_gain",  ItemKey::ReplayGainTrackGain),
+        ("replaygain_track_peak",  ItemKey::ReplayGainTrackPeak),
     ])
 });
 

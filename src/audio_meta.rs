@@ -56,7 +56,6 @@ impl SimplePluginCommand for SoundMetaGetCmd {
         Signature::new("sound meta")
             .input_output_types(vec![
                 (Type::Nothing, Type::Record(vec![].into())),
-                (Type::Binary, Type::Record(vec![].into())),
             ])
             .switch("all", "List all possible frame names", Some('a'))
             .optional("File Path", SyntaxShape::Filepath, "file to play")
@@ -112,10 +111,7 @@ fn parse_meta(
 fn parse_tags(path: &std::path::Path, span: Span) -> Result<Record, LabeledError> {
     let mut record = record! {};
 
-    let file = std::fs::File::open(path).map_err(|e| {
-        LabeledError::new(e.to_string()).with_label("error opening file", span)
-    })?;
-    let file_size = file.metadata().map(|m| m.len()).unwrap_or(0);
+    let file_size = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
     record.push("size", Value::filesize(file_size as i64, span));
 
     if let Some(ext) = path.extension() {
@@ -124,9 +120,22 @@ fn parse_tags(path: &std::path::Path, span: Span) -> Result<Record, LabeledError
 
     let tagged_file = read_from_path(path).ok();
     if let Some(tagged_file) = tagged_file {
+        // ── FileProperties ────────────────────────────────────────────────────
+        let props = tagged_file.properties();
+        if let Some(v) = props.overall_bitrate() {
+            record.push("bitrate", Value::int(v as i64, span));
+        }
+        if let Some(v) = props.audio_bitrate() {
+            record.push("audio_bitrate", Value::int(v as i64, span));
+        }
+        if let Some(v) = props.bit_depth() {
+            record.push("bit_depth", Value::int(v as i64, span));
+        }
+
+        // ── Tag fields ────────────────────────────────────────────────────────
         if let Some(tag) = tagged_file.primary_tag() {
             for (key, val) in TAG_MAP.iter() {
-                if let Some(result) = tag.get_string(val) {
+                if let Some(result) = tag.get_string(*val) {
                     insert_into_str(&mut record, key, Some(result.to_string()), span)
                 }
             }
@@ -135,6 +144,32 @@ fn parse_tags(path: &std::path::Path, span: Span) -> Result<Record, LabeledError
             insert_into_integer(&mut record, "total_tracks", tag.track_total(), span);
             insert_into_integer(&mut record, "disc_no", tag.disk(), span);
             insert_into_integer(&mut record, "total_discs", tag.disk_total(), span);
+
+            // ── Embedded artwork ──────────────────────────────────────────────
+            let pictures = tag.pictures();
+            if !pictures.is_empty() {
+                let artwork: Vec<Value> = pictures
+                    .iter()
+                    .map(|pic| {
+                        let mut art = record! {
+                            "pic_type" => Value::string(format!("{:?}", pic.pic_type()), span),
+                            "mime_type" => Value::string(
+                                pic.mime_type()
+                                    .map(|m| m.as_str())
+                                    .unwrap_or("unknown")
+                                    .to_string(),
+                                span,
+                            ),
+                            "size" => Value::filesize(pic.data().len() as i64, span),
+                        };
+                        if let Some(desc) = pic.description() {
+                            art.push("description", Value::string(desc.to_string(), span));
+                        }
+                        Value::record(art, span)
+                    })
+                    .collect();
+                record.push("artwork", Value::list(artwork, span));
+            }
         }
     }
     Ok(record)
@@ -143,8 +178,11 @@ fn parse_tags(path: &std::path::Path, span: Span) -> Result<Record, LabeledError
 fn parse_stream_meta(source: &impl Source, span: Span) -> Record {
     let mut record = record! {};
     if let Some(d) = source.total_duration() {
-        let nanos = d.as_nanos().try_into().unwrap_or(0);
-        record.push("duration", Value::duration(nanos, span));
+        let total_secs = d.as_secs();
+        let h = total_secs / 3600;
+        let m = (total_secs % 3600) / 60;
+        let s = total_secs % 60;
+        record.push("duration", Value::string(format!("{}:{:02}:{:02}", h, m, s), span));
     } else {
         warn!("Duration unavailable for source");
         record.push("duration", Value::nothing(span));
@@ -177,8 +215,9 @@ fn audio_meta_set(engine: &nu_plugin::EngineInterface, call: &EvaluatedCall) -> 
         LabeledError::new(e.to_string()).with_label("error reading file", call.head)
     })?;
 
-    let item_key = TAG_MAP.get(key.as_str()).ok_or_else(|| {
-        LabeledError::new(format!("Unknown metadata key: {}", key))
+    let normalized_key = key.to_lowercase();
+    let item_key = TAG_MAP.get(normalized_key.as_str()).cloned().ok_or_else(|| {
+        LabeledError::new(format!("Unknown metadata key: {}", normalized_key))
             .with_label("key not found", call.head)
     })?;
 
@@ -187,11 +226,21 @@ fn audio_meta_set(engine: &nu_plugin::EngineInterface, call: &EvaluatedCall) -> 
         None => {
             let tag_type = tagged_file.file_type().primary_tag_type();
             tagged_file.insert_tag(Tag::new(tag_type));
-            tagged_file.primary_tag_mut().expect("Just inserted tag")
+            tagged_file.primary_tag_mut().ok_or_else(|| {
+                LabeledError::new("failed to create primary tag for file".to_string())
+                    .with_label("tag insertion failed", call.head)
+            })?
         }
     };
 
-    tag.insert_text(item_key.clone(), value);
+    let tag_type = tag.tag_type();
+    if !tag.insert_text(item_key, value) {
+        return Err(LabeledError::new(format!(
+            "tag type {:?} rejected key '{}'",
+            tag_type, normalized_key
+        ))
+        .with_label("insert_text returned false", call.head));
+    }
 
     tagged_file.save_to_path(&path, WriteOptions::default()).map_err(|e| {
         LabeledError::new(e.to_string()).with_label("error saving file", call.head)

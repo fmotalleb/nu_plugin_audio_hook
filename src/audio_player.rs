@@ -5,7 +5,7 @@ use crossterm::{
     style::{Attribute, SetAttribute},
     terminal::{disable_raw_mode, enable_raw_mode, size, Clear, ClearType},
 };
-use lofty::file::TaggedFileExt;
+use lofty::file::{AudioFile, TaggedFileExt};
 use lofty::prelude::Accessor;
 use nu_plugin::{EngineInterface, EvaluatedCall, SimplePluginCommand};
 use nu_protocol::{Category, Example, LabeledError, Signature, SyntaxShape, Value};
@@ -91,7 +91,7 @@ impl SimplePluginCommand for SoundPlayCmd {
             .named(
                 "duration",
                 SyntaxShape::Duration,
-                "duration of file (mandatory for non-wave formats like mp3) (default 1 hour)",
+                "truncate playback to this duration (default: auto-detected from file headers)",
                 Some('d'),
             )
             .named(
@@ -132,7 +132,7 @@ impl SimplePluginCommand for SoundPlayCmd {
             },
             Example {
                 description: "play a sound for its metadata duration",
-                example: "sound meta audio.mp4 | sound play audio.mp3 -d $in.duration",
+                example: "sound meta audio.mp3 | sound play audio.mp3",
                 result: None,
             },
             Example {
@@ -202,7 +202,15 @@ fn play_audio(engine: &EngineInterface, call: &EvaluatedCall) -> Result<(), Labe
         _ => 1.0,
     };
 
-    let source_duration = source.total_duration();
+    // Prefer rodio's own duration; fall back to lofty's container-header duration
+    // so that minimp3 (which cannot seek-scan) still reports the correct length
+    // without needing a manual -d flag.
+    let source_duration: Option<Duration> = source.total_duration().or_else(|| {
+        lofty::read_from_path(&path)
+            .ok()
+            .map(|tf| tf.properties().duration())
+            .filter(|d| !d.is_zero())
+    });
 
     let sink = Sink::connect_new(output_stream.mixer());
     sink.append(source);
