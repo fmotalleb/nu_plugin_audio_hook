@@ -29,12 +29,55 @@ jobs:
 
       - name: Upgrade dependencies
         id: upgrade
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: nu {0}
         run: |
-          # Pinned to commit 2b1f15507005879c0c4d026390bc8d09d97270f8 (2025-06-25: use crates.io for version lookup)
-          http get https://raw.githubusercontent.com/FMotalleb/nushell_sync_script/2b1f15507005879c0c4d026390bc8d09d97270f8/bump_dependencies.nu
-            | save /tmp/update.nu
-          nu /tmp/update.nu
+          def "gh latest tag" [repo: string]: nothing -> string {
+            http get --headers [Authorization $"Bearer ($env.GITHUB_TOKEN)"] $"https://api.github.com/repos/($repo)/releases/latest"
+              | get tag_name
+          }
+
+          let plugin_repository = "nushell/nushell"
+          let plugin_version = (try {
+              http get https://crates.io/api/v1/crates/nu-plugin?include=keywords%2Ccategories%2Cdownloads%2Cdefault_version
+                | get crate.default_version
+            } catch {
+              gh latest tag $plugin_repository
+            })
+          let sanitized_plugin_version = ($plugin_version | str replace --regex "^v" "")
+
+          mut content = (open Cargo.toml --raw)
+
+          # Update package version
+          $content = ($content | str replace --regex '(?m)^version\s*=\s*".*?"' $"version = \"($sanitized_plugin_version)\"" --range 0..1)
+
+          let toml_data = (open Cargo.toml)
+          let nu_deps = ($toml_data.dependencies | columns | where ($it =~ "^nu-.*"))
+
+          for dep in $nu_deps {
+            $content = ($content | str replace --regex $"(?m)^($dep)\\s*=\\s*\".*?\"" $"${1}\"($sanitized_plugin_version)\"")
+            $content = ($content | str replace --regex $"(?s)(\[dependencies\.($dep)\][^\[]*?version\\s*=\\s*)\".*?\"" $"${1}\"($sanitized_plugin_version)\"")
+            $content = ($content | str replace --regex $"(?m)^($dep)\\s*=.*version\\s*=\\s*\"[^\"]+\"" $"${1}\"($sanitized_plugin_version)\"")
+          }
+
+          let inter_val = ($toml_data.dependencies | get -i interprocess)
+          if ($inter_val | describe | str starts-with "record") {
+              $content = ($content | str replace --regex '(?s)(\[dependencies\.interprocess\][^\[]*?version\s*=\s*)".*?"' '${1}"=2.2.1"')
+              $content = ($content | str replace --regex '(?m)^(interprocess\s*=.*version\s*=\s*)".*?"' '${1}"=2.2.1"')
+          } else {
+              $content = ($content | str replace --regex '(?m)^interprocess\s*=\s*".*?"' 'interprocess = "=2.2.1"')
+          }
+
+          $content | save --force Cargo.toml
+
+          open nupm.nuon --raw
+            | str replace --regex '(\s*version:\s*)".*?"' $"${1}\"($sanitized_plugin_version)\""
+            | save --force nupm.nuon
+
+          cargo update interprocess --precise 2.2.1
+          cargo update
+          cargo check
 
       - name: Update CONTRIBUTORS.md
         run: |

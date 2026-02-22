@@ -22,6 +22,7 @@ authors-file = "AUTHORS"
 chrono = "0.4.41"
 env_logger = "0.11"
 log = "0.4"
+interprocess = "=2.2.1" # TODO: remove once nu-plugin-core no longer depends on interprocess <2.3
 
 [dependencies.crossterm]
 version = "0.29"
