@@ -1,5 +1,5 @@
 use crossterm::{
-    cursor::{Hide, MoveToColumn, MoveUp, Show},
+    cursor::{Hide, MoveToColumn, Show},
     event::{self, Event, KeyCode, KeyEvent},
     execute, queue,
     style::{Attribute, SetAttribute},
@@ -290,7 +290,30 @@ fn wait_with_progress(
     let _ = execute!(err, Hide);
 
     if title.is_some() || artist.is_some() {
-        let _ = writeln!(err);
+        let header_text = match (artist.as_deref(), title.as_deref()) {
+            (Some(a), Some(t)) => format!("{} — {}", a, t),
+            (Some(a), None) => a.to_string(),
+            (None, Some(t)) => t.to_string(),
+            _ => String::new(),
+        };
+
+        let prefix = match icons {
+            IconSet::NerdFont => "  ",
+            IconSet::Unicode => "♪  ",
+            IconSet::Ascii => "#  ",
+        };
+
+        let full_header = format!("{}{}", prefix, header_text);
+        let term_width = size().map(|(w, _)| w).unwrap_or(30) as usize;
+        let display_header = if full_header.width() > term_width {
+            let ellipsis = if icons == IconSet::Ascii { "..." } else { "…" };
+            let max_len = term_width.saturating_sub(ellipsis.width());
+            let truncated: String = full_header.chars().take(max_len).collect();
+            format!("{}{}", truncated, ellipsis)
+        } else {
+            full_header
+        };
+        let _ = writeln!(err, "{}", display_header);
     }
 
     if interactive {
@@ -318,8 +341,9 @@ fn wait_with_progress(
 
             if interactive {
                 if event::poll(Duration::ZERO).unwrap_or(false) {
-                    if let Ok(Event::Key(KeyEvent { code, .. })) = event::read() {
-                        match code {
+                    if let Ok(Event::Key(KeyEvent { code, kind, .. })) = event::read() {
+                        if kind == event::KeyEventKind::Press {
+                            match code {
                             // Space — toggle play/pause.
                             KeyCode::Char(' ') => {
                                 if paused { sink.play(); paused = false; }
@@ -375,19 +399,20 @@ fn wait_with_progress(
                                 break;
                             }
                             _ => {}
+                            }
                         }
                     }
                 }
             }
 
             if needs_render || last_render.elapsed() >= RENDER_INTERVAL {
-                render_progress(&mut err, position, total, paused, volume, interactive, &icons, &title, &artist);
+                render_progress(&mut err, position, total, paused, volume, interactive, &icons);
                 last_render = Instant::now();
             }
             std::thread::sleep(KEY_POLL_INTERVAL);
         }
 
-        render_progress(&mut err, position.min(total), total, false, volume, interactive, &icons, &title, &artist);
+        render_progress(&mut err, position.min(total), total, false, volume, interactive, &icons);
         Ok::<(), LabeledError>(())
     })();
 
@@ -416,8 +441,6 @@ fn render_progress(
     volume: f32,
     interactive: bool,
     icons: &IconSet,
-    title: &Option<String>,
-    artist: &Option<String>,
 ) {
     let elapsed_str = format_duration(elapsed);
     let total_str   = format_duration(total);
@@ -429,36 +452,6 @@ fn render_progress(
     let percent     = (ratio * 100.0).round() as u8;
     let vol_pct     = (volume.min(VOLUME_MAX) * 100.0).round() as u8;
     let vol_icon    = icons.volume(volume);
-
-    if title.is_some() || artist.is_some() {
-        let _ = queue!(err, MoveUp(1), MoveToColumn(0), Clear(ClearType::CurrentLine));
-
-        let header_text = match (artist.as_deref(), title.as_deref()) {
-            (Some(a), Some(t)) => format!("{} — {}", a, t),
-            (Some(a), None) => a.to_string(),
-            (None, Some(t)) => t.to_string(),
-            _ => String::new(),
-        };
-
-        let prefix = match icons {
-            IconSet::NerdFont => "  ",
-            IconSet::Unicode => "♪  ",
-            IconSet::Ascii => "#  ",
-        };
-
-        let full_header = format!("{}{}", prefix, header_text);
-        let term_width = size().map(|(w, _)| w).unwrap_or(30) as usize;
-        let display_header = if full_header.width() > term_width {
-            let ellipsis = if *icons == IconSet::Ascii { "..." } else { "…" };
-            let max_len = term_width.saturating_sub(ellipsis.width());
-            let truncated: String = full_header.chars().take(max_len).collect();
-            format!("{}{}", truncated, ellipsis)
-        } else {
-            full_header
-        };
-        let _ = write!(err, "{}\r\n", display_header);
-        let _ = queue!(err, MoveToColumn(0), Clear(ClearType::CurrentLine));
-    }
 
     let prefix = if *icons == IconSet::NerdFont {
         format!("{} ", icons.music())
