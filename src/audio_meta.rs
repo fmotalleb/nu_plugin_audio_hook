@@ -4,7 +4,7 @@ use lofty::prelude::Accessor;
 use lofty::{read_from_path, tag::Tag};
 use log::warn;
 use nu_plugin::{EvaluatedCall, SimplePluginCommand};
-use nu_protocol::{record, Category, LabeledError, Record, Signature, Span, SyntaxShape, Value};
+use nu_protocol::{record, Category, LabeledError, Record, Signature, Span, SyntaxShape, Type, Value};
 use rodio::{Decoder, Source};
 use std::io::Seek;
 
@@ -54,6 +54,10 @@ impl SimplePluginCommand for SoundMetaGetCmd {
 
     fn signature(&self) -> Signature {
         Signature::new("sound meta")
+            .input_output_types(vec![
+                (Type::Nothing, Type::Record(vec![].into())),
+                (Type::Binary, Type::Record(vec![].into())),
+            ])
             .switch("all", "List all possible frame names", Some('a'))
             .optional("File Path", SyntaxShape::Filepath, "file to play")
             .category(Category::Experimental)
@@ -68,8 +72,14 @@ impl SimplePluginCommand for SoundMetaGetCmd {
         _plugin: &Self::Plugin,
         engine: &nu_plugin::EngineInterface,
         call: &EvaluatedCall,
-        _input: &Value,
+        input: &Value,
     ) -> Result<Value, nu_protocol::LabeledError> {
+        if let Value::Binary { .. } = input {
+            return Err(LabeledError::new(
+                "binary pipeline input is not yet supported — streaming support is planned",
+            )
+            .with_label("unsupported input", call.head));
+        }
         if let Ok(true) = call.has_flag("all") {
             return Ok(get_meta_records(call.head));
         }
