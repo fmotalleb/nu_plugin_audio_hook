@@ -290,18 +290,19 @@ fn wait_with_progress(
     let _ = execute!(err, Hide);
 
     // Pre-compute the header string once; render_progress will redraw it every frame.
-    let header: Option<String> = if title.is_some() || artist.is_some() {
-        let header_text = match (artist.as_deref(), title.as_deref()) {
-            (Some(a), Some(t)) => format!("{} — {}", a, t),
-            (Some(a), None) => a.to_string(),
-            (None, Some(t)) => t.to_string(),
-            _ => unreachable!(),
-        };
+    let header: Option<String> = {
+        let parts: Vec<&str> = [artist.as_deref(), title.as_deref()]
+            .into_iter()
+            .flatten()
+            .collect();
 
-        let prefix = format!("{}  ", icons.music());
-        Some(format!("{}{}", prefix, header_text))
-    } else {
-        None
+        if !parts.is_empty() {
+            let header_text = parts.join(" — ");
+            let prefix = format!("{}  ", icons.music());
+            Some(format!("{}{}", prefix, header_text))
+        } else {
+            None
+        }
     };
 
     if interactive {
@@ -530,7 +531,7 @@ fn render_progress(
         }
         // Move up to the header line, clear it, and redraw.
         let _ = queue!(buf, MoveUp(1));
-        let _ = queue!(buf, MoveToColumn(0), Clear(ClearType::CurrentLine));
+        let _ = queue!(buf, MoveToColumn(0));
 
         let term_width = size().map(|(w, _)| w).unwrap_or(80) as usize;
         if hdr.width() > term_width {
@@ -551,12 +552,13 @@ fn render_progress(
             let _ = buf.write_all(hdr.as_bytes());
         }
 
+        let _ = queue!(buf, Clear(ClearType::UntilNewLine));
         // Drop back down to the progress line.
         let _ = buf.write_all(b"\n");
     }
 
     // Redraw the progress line.
-    let _ = queue!(buf, MoveToColumn(0), Clear(ClearType::CurrentLine));
+    let _ = queue!(buf, MoveToColumn(0));
     let _ = queue!(buf, SetAttribute(Attribute::Bold));
     let _ = buf.write_all(format!("{prefix}{icon}").as_bytes());
     let _ = queue!(buf, SetAttribute(Attribute::Reset));
@@ -564,6 +566,7 @@ fn render_progress(
         format!("  {elapsed_str} / {total_str}  {bar}  {percent}%  {vol_icon} {vol_bar} {vol_pct}%{controls_suffix}")
             .as_bytes(),
     );
+    let _ = queue!(buf, Clear(ClearType::UntilNewLine));
 
     let _ = err.write_all(&buf);
     let _ = err.flush();
