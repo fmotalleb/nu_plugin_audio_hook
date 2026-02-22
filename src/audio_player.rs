@@ -5,7 +5,8 @@ use crossterm::{
     style::{Attribute, SetAttribute},
     terminal::{disable_raw_mode, enable_raw_mode, size, Clear, ClearType},
 };
-use id3::{Tag, TagLike};
+use lofty::file::TaggedFileExt;
+use lofty::prelude::Accessor;
 use nu_plugin::{EngineInterface, EvaluatedCall, SimplePluginCommand};
 use nu_protocol::{Category, Example, LabeledError, Signature, SyntaxShape, Value};
 use rodio::{source::Source, Decoder, OutputStreamBuilder, Sink};
@@ -184,8 +185,12 @@ fn play_audio(engine: &EngineInterface, call: &EvaluatedCall) -> Result<(), Labe
         LabeledError::new(err.to_string()).with_label("audio decoder exception", file_span)
     })?;
 
-    let (title, artist) = if let Ok(tag) = Tag::read_from_path(&path) {
-        (tag.title().map(|s| s.to_string()), tag.artist().map(|s| s.to_string()))
+    let (title, artist) = if let Ok(tagged_file) = lofty::read_from_path(&path) {
+        if let Some(tag) = tagged_file.primary_tag() {
+            (tag.title().map(|s| s.to_string()), tag.artist().map(|s| s.to_string()))
+        } else {
+            (None, None)
+        }
     } else {
         (None, None)
     };

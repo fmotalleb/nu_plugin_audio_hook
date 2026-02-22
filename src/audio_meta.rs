@@ -1,4 +1,7 @@
-use id3::{Tag, TagLike};
+use lofty::config::WriteOptions;
+use lofty::file::{AudioFile, TaggedFileExt};
+use lofty::prelude::Accessor;
+use lofty::{read_from_path, tag::Tag};
 use log::warn;
 use nu_plugin::{EvaluatedCall, SimplePluginCommand};
 use nu_protocol::{record, Category, LabeledError, Record, Signature, Span, SyntaxShape, Value};
@@ -82,10 +85,7 @@ fn parse_meta(
 ) -> Result<Value, LabeledError> {
     let file_size = file_value.metadata().map(|m| m.len()).unwrap_or(0);
 
-    let tags = match Tag::read_from2(&mut file_value) {
-        Ok(tags) => Some(tags),
-        Err(_) => None,
-    };
+    let tagged_file = read_from_path(&path).ok();
     let mut other = record! {};
     if let Err(e) = file_value.rewind() {
         return Err(LabeledError::new(e.to_string()).with_label("error seeking file", call.head));
@@ -109,22 +109,24 @@ fn parse_meta(
         other.push("channels", Value::int(source.channels() as i64, call.head));
     }
 
-    if let Some(tags) = tags {
-        for (key, val) in ID3_HASHMAP.iter() {
-            if let Some(result) = tags.get(val) {
-                insert_into_str(
-                    &mut other,
-                    key,
-                    Some(result.content().to_string()),
-                    call.head,
-                )
+    if let Some(tagged_file) = tagged_file {
+        if let Some(tag) = tagged_file.primary_tag() {
+            for (key, val) in ID3_HASHMAP.iter() {
+                if let Some(result) = tag.get_string(val) {
+                    insert_into_str(
+                        &mut other,
+                        key,
+                        Some(result.to_string()),
+                        call.head,
+                    )
+                }
             }
-        }
 
-        insert_into_integer(&mut other, "track_no", tags.track(), call.head);
-        insert_into_integer(&mut other, "total_tracks", tags.total_tracks(), call.head);
-        insert_into_integer(&mut other, "disc_no", tags.disc(), call.head);
-        insert_into_integer(&mut other, "total_discs", tags.total_discs(), call.head);
+            insert_into_integer(&mut other, "track_no", tag.track(), call.head);
+            insert_into_integer(&mut other, "total_tracks", tag.track_total(), call.head);
+            insert_into_integer(&mut other, "disc_no", tag.disk(), call.head);
+            insert_into_integer(&mut other, "total_discs", tag.disk_total(), call.head);
+        }
     }
 
     Ok(Value::record(other, call.head))
@@ -146,18 +148,30 @@ fn audio_meta_set(engine: &nu_plugin::EngineInterface, call: &EvaluatedCall) -> 
                 .with_label("cannot get value of value", call.head));
         }
     };
-    let mut tags = match Tag::read_from2(&file_value) {
-        Ok(tags) => tags,
-        Err(_) => Tag::new(),
-    };
-
     drop(file_value);
 
-    tags.set_text(key, value);
+    let mut tagged_file = read_from_path(&path).map_err(|e| {
+        LabeledError::new(e.to_string()).with_label("error reading file", call.head)
+    })?;
 
-    let tr = tags.write_to_path(&path, tags.version());
-    tr.map_err(|e| {
-        LabeledError::new(e.to_string()).with_label("error during writing", call.head)
+    let item_key = ID3_HASHMAP.get(key.as_str()).ok_or_else(|| {
+        LabeledError::new(format!("Unknown metadata key: {}", key))
+            .with_label("key not found", call.head)
+    })?;
+
+    let tag = match tagged_file.primary_tag_mut() {
+        Some(tag) => tag,
+        None => {
+            let tag_type = tagged_file.file_type().primary_tag_type();
+            tagged_file.insert_tag(Tag::new(tag_type));
+            tagged_file.primary_tag_mut().expect("Just inserted tag")
+        }
+    };
+
+    tag.insert_text(item_key.clone(), value);
+
+    tagged_file.save_to_path(&path, WriteOptions::default()).map_err(|e| {
+        LabeledError::new(e.to_string()).with_label("error saving file", call.head)
     })?;
 
     let file = std::fs::File::open(&path).map_err(|e| {
