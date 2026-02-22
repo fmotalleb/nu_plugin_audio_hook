@@ -1,5 +1,5 @@
 use crossterm::{
-    cursor::{Hide, MoveToColumn, Show},
+    cursor::{Hide, MoveToColumn, MoveUp, Show},
     event::{self, Event, KeyCode, KeyEvent},
     execute, queue,
     style::{Attribute, SetAttribute},
@@ -285,40 +285,25 @@ fn wait_with_progress(
     let mut paused    = false;
     let mut volume    = initial_volume;
     let mut pre_mute_volume = initial_volume;
+    let mut first_render = true;
 
     let _ = execute!(err, Hide);
 
-    if title.is_some() || artist.is_some() {
-        let header_text = match (artist.as_deref(), title.as_deref()) {
-            (Some(a), Some(t)) => format!("{} — {}", a, t),
-            (Some(a), None) => a.to_string(),
-            (None, Some(t)) => t.to_string(),
-            _ => String::new(),
-        };
+    // Pre-compute the header string once; render_progress will redraw it every frame.
+    let header: Option<String> = {
+        let parts: Vec<&str> = [artist.as_deref(), title.as_deref()]
+            .into_iter()
+            .flatten()
+            .collect();
 
-        let prefix = format!("{}  ", icons.music());
-
-        let full_header = format!("{}{}", prefix, header_text);
-        let term_width = size().map(|(w, _)| w).unwrap_or(30) as usize;
-        let display_header = if full_header.width() > term_width {
-            let ellipsis = if icons == IconSet::Ascii { "..." } else { "…" };
-            let max_len = term_width.saturating_sub(ellipsis.width());
-            let mut width = 0;
-            let mut truncated = String::new();
-            for c in full_header.chars() {
-                let w = c.width().unwrap_or(0);
-                if width + w > max_len {
-                    break;
-                }
-                width += w;
-                truncated.push(c);
-            }
-            format!("{}{}", truncated, ellipsis)
+        if !parts.is_empty() {
+            let header_text = parts.join(" — ");
+            let prefix = format!("{}  ", icons.music());
+            Some(format!("{}{}", prefix, header_text))
         } else {
-            full_header
-        };
-        let _ = writeln!(err, "{}", display_header);
-    }
+            None
+        }
+    };
 
     if interactive {
         if let Err(e) = enable_raw_mode() {
@@ -403,20 +388,26 @@ fn wait_with_progress(
             }
 
             if needs_render || last_render.elapsed() >= RENDER_INTERVAL {
-                render_progress(&mut err, position, total, paused, volume, interactive, &icons);
+                render_progress(&mut err, position, total, paused, volume, interactive, &icons, header.as_deref(), first_render);
+                first_render = false;
                 last_render = Instant::now();
             }
             std::thread::sleep(KEY_POLL_INTERVAL);
         }
 
-        render_progress(&mut err, position.min(total), total, false, volume, interactive, &icons);
+        render_progress(&mut err, position.min(total), total, false, volume, interactive, &icons, header.as_deref(), first_render);
         Ok::<(), LabeledError>(())
     })();
 
     if interactive {
         let _ = disable_raw_mode();
     }
-    let _ = execute!(err, Show, MoveToColumn(0), Clear(ClearType::CurrentLine));
+    if header.is_some() {
+        let _ = execute!(err, MoveToColumn(0), Clear(ClearType::CurrentLine));
+        let _ = execute!(err, Show, MoveUp(1), MoveToColumn(0), Clear(ClearType::CurrentLine));
+    } else {
+        let _ = execute!(err, Show, MoveToColumn(0), Clear(ClearType::CurrentLine));
+    }
 
     result
 }
@@ -442,6 +433,8 @@ fn render_progress(
     volume: f32,
     interactive: bool,
     icons: &IconSet,
+    header: Option<&str>,
+    first_render: bool,
 ) {
     // Bail out silently on very narrow terminals rather than wrapping garbage.
     if size().map(|(w, _)| w).unwrap_or(u16::MAX) < MIN_RENDER_WIDTH {
@@ -528,14 +521,59 @@ fn render_progress(
     let vol_ratio = (volume as f64 / VOLUME_MAX as f64).clamp(0.0, 1.0);
     let vol_bar = render_bar(vol_ratio, vol_bar_width, icons);
 
-    let _ = queue!(err, MoveToColumn(0), Clear(ClearType::CurrentLine));
-    let _ = queue!(err, SetAttribute(Attribute::Bold));
-    let _ = write!(err, "{prefix}{icon}");
-    let _ = queue!(err, SetAttribute(Attribute::Reset));
-    let _ = write!(
-        err,
-        "  {elapsed_str} / {total_str}  {bar}  {percent}%  {vol_icon} {vol_bar} {vol_pct}%{controls_suffix}"
+    // Build the entire output (header + progress line) into a single buffer so
+    // it is written to the terminal in one write_all + flush — eliminating the
+    // partial-state flicker that multiple separate write!/queue! calls cause on
+    // Windows.
+    let mut buf: Vec<u8> = Vec::new();
+
+    if let Some(hdr) = header {
+        if first_render {
+            // Reserve a blank line that will become the header line.  The
+            // cursor ends up one line below it, which is exactly where the
+            // progress line lives from this point on.
+            let _ = buf.write_all(b"\n");
+        }
+        // Move up to the header line, clear it, and redraw.
+        let _ = queue!(buf, MoveUp(1));
+        let _ = queue!(buf, MoveToColumn(0));
+
+        let term_width = size().map(|(w, _)| w).unwrap_or(80) as usize;
+        if hdr.width() > term_width {
+            let ellipsis = if *icons == IconSet::Ascii { "..." } else { "…" };
+            let max_len = term_width.saturating_sub(ellipsis.width());
+            let mut width = 0;
+            let mut truncated = String::new();
+            for c in hdr.chars() {
+                let w = c.width().unwrap_or(0);
+                if width + w > max_len {
+                    break;
+                }
+                width += w;
+                truncated.push(c);
+            }
+            let _ = write!(buf, "{}{}", truncated, ellipsis);
+        } else {
+            let _ = buf.write_all(hdr.as_bytes());
+        }
+
+        let _ = queue!(buf, Clear(ClearType::UntilNewLine));
+        // Drop back down to the progress line.
+        let _ = buf.write_all(b"\n");
+    }
+
+    // Redraw the progress line.
+    let _ = queue!(buf, MoveToColumn(0));
+    let _ = queue!(buf, SetAttribute(Attribute::Bold));
+    let _ = buf.write_all(format!("{prefix}{icon}").as_bytes());
+    let _ = queue!(buf, SetAttribute(Attribute::Reset));
+    let _ = buf.write_all(
+        format!("  {elapsed_str} / {total_str}  {bar}  {percent}%  {vol_icon} {vol_bar} {vol_pct}%{controls_suffix}")
+            .as_bytes(),
     );
+    let _ = queue!(buf, Clear(ClearType::UntilNewLine));
+
+    let _ = err.write_all(&buf);
     let _ = err.flush();
 }
 
