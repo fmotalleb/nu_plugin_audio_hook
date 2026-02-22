@@ -402,7 +402,12 @@ fn wait_with_progress(
     if interactive {
         let _ = disable_raw_mode();
     }
-    let _ = execute!(err, Show, MoveToColumn(0), Clear(ClearType::CurrentLine));
+    if header.is_some() {
+        let _ = execute!(err, MoveToColumn(0), Clear(ClearType::CurrentLine));
+        let _ = execute!(err, Show, MoveUp(1), MoveToColumn(0), Clear(ClearType::CurrentLine));
+    } else {
+        let _ = execute!(err, Show, MoveToColumn(0), Clear(ClearType::CurrentLine));
+    }
 
     result
 }
