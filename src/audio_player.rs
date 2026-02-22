@@ -15,7 +15,7 @@ use std::io::{stderr, Write};
 use std::time::{Duration, Instant};
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
-use crate::{utils::load_file, Sound};
+use crate::{utils::{format_duration, load_file}, Sound};
 
 /// Interval for checking keyboard input.
 const KEY_POLL_INTERVAL: Duration = Duration::from_millis(200);
@@ -143,8 +143,8 @@ impl SimplePluginCommand for SoundPlayCmd {
                 result: None,
             },
             Example {
-                description: "play a sound for its metadata duration",
-                example: "sound meta audio.mp3 | sound play audio.mp3",
+                description: "play a sound for its detected metadata duration",
+                example: "sound play audio.mp3",
                 result: None,
             },
             Example {
@@ -202,15 +202,14 @@ fn play_audio(engine: &EngineInterface, call: &EvaluatedCall) -> Result<(), Labe
         LabeledError::new(err.to_string()).with_label("audio decoder exception", file_span)
     })?;
 
-    let (title, artist) = if let Ok(tagged_file) = lofty::read_from_path(&path) {
-        if let Some(tag) = tagged_file.primary_tag() {
-            (tag.title().map(|s| s.to_string()), tag.artist().map(|s| s.to_string()))
-        } else {
-            (None, None)
-        }
-    } else {
-        (None, None)
-    };
+    // Read the tagged file once; reuse the result for both metadata and duration fallback.
+    let tagged_file_res = lofty::read_from_path(&path);
+    let (title, artist) = tagged_file_res
+        .as_ref()
+        .ok()
+        .and_then(|tf| tf.primary_tag())
+        .map(|tag| (tag.title().map(|s| s.to_string()), tag.artist().map(|s| s.to_string())))
+        .unwrap_or((None, None));
 
     // Volume is now set on the Sink rather than baked into the source with
     // amplify(), so it can be changed live and survives seeks correctly.
@@ -223,7 +222,7 @@ fn play_audio(engine: &EngineInterface, call: &EvaluatedCall) -> Result<(), Labe
     // so that minimp3 (which cannot seek-scan) still reports the correct length
     // without needing a manual -d flag.
     let source_duration: Option<Duration> = source.total_duration().or_else(|| {
-        lofty::read_from_path(&path)
+        tagged_file_res
             .ok()
             .map(|tf| tf.properties().duration())
             .filter(|d| !d.is_zero())
@@ -664,20 +663,6 @@ fn render_bar(ratio: f64, width: usize, icons: &IconSet) -> String {
 
     s.push(']');
     s
-}
-
-/// Formats a `Duration` as `M:SS`, or `H:MM:SS` for durations >= 1 hour.
-fn format_duration(d: Duration) -> String {
-    let total_secs = d.as_secs();
-    let hours   = total_secs / 3600;
-    let minutes = (total_secs % 3600) / 60;
-    let seconds = total_secs % 60;
-
-    if hours > 0 {
-        format!("{hours}:{minutes:02}:{seconds:02}")
-    } else {
-        format!("{minutes}:{seconds:02}")
-    }
 }
 
 /// Returns `true` if the current terminal environment is likely to support Unicode.

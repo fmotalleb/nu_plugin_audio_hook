@@ -7,10 +7,11 @@ use nu_plugin::{EvaluatedCall, SimplePluginCommand};
 use nu_protocol::{record, Category, LabeledError, Record, Signature, Span, SyntaxShape, Type, Value};
 use rodio::{Decoder, Source};
 use std::io::Seek;
+use std::time::Duration;
 
 use crate::{
     constants::{get_meta_records, TAG_MAP},
-    utils::load_file,
+    utils::{format_duration, load_file},
     Sound,
 };
 /// Nushell command `sound meta set` — writes a single metadata tag to an audio file.
@@ -67,6 +68,7 @@ impl SimplePluginCommand for SoundMetaGetCmd {
         Signature::new("sound meta")
             .input_output_types(vec![
                 (Type::Nothing, Type::Record(vec![].into())),
+                (Type::Binary,  Type::Record(vec![].into())),
             ])
             .switch("all", "List all possible frame names", Some('a'))
             .optional("File Path", SyntaxShape::Filepath, "file to play")
@@ -105,14 +107,14 @@ fn parse_meta(
     mut file_value: std::fs::File,
     path: std::path::PathBuf,
 ) -> Result<Value, LabeledError> {
-    let mut record = parse_tags(&path, call.head)?;
+    let (mut record, lofty_duration) = parse_tags(&path, call.head)?;
 
     if let Err(e) = file_value.rewind() {
         return Err(LabeledError::new(e.to_string()).with_label("error seeking file", call.head));
     }
 
     if let Ok(source) = Decoder::try_from(file_value) {
-        let stream_meta = parse_stream_meta(&source, call.head);
+        let stream_meta = parse_stream_meta(&source, lofty_duration, call.head);
         for (col, val) in stream_meta {
             record.push(col, val);
         }
@@ -127,8 +129,13 @@ fn parse_meta(
 /// all [`TAG_MAP`] text fields, numeric track/disc accessors, and embedded artwork.
 /// Opens its own file handle via `std::fs::metadata` / `lofty::read_from_path` so no
 /// caller-owned handle is required.
-fn parse_tags(path: &std::path::Path, span: Span) -> Result<Record, LabeledError> {
+///
+/// Returns the record alongside the container-reported duration (if any) so the caller
+/// can pass it to [`parse_stream_meta`] as a fallback when rodio cannot determine the
+/// duration itself (e.g. with the minimp3 decoder).
+fn parse_tags(path: &std::path::Path, span: Span) -> Result<(Record, Option<Duration>), LabeledError> {
     let mut record = record! {};
+    let mut lofty_duration: Option<Duration> = None;
 
     let file_size = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
     record.push("size", Value::filesize(file_size as i64, span));
@@ -149,6 +156,12 @@ fn parse_tags(path: &std::path::Path, span: Span) -> Result<Record, LabeledError
         }
         if let Some(v) = props.bit_depth() {
             record.push("bit_depth", Value::int(v as i64, span));
+        }
+        // Capture the container-header duration as a fallback for decoders
+        // (e.g. minimp3) that cannot determine duration from the stream alone.
+        let d = props.duration();
+        if !d.is_zero() {
+            lofty_duration = Some(d);
         }
 
         // ── Tag fields ────────────────────────────────────────────────────────
@@ -191,22 +204,24 @@ fn parse_tags(path: &std::path::Path, span: Span) -> Result<Record, LabeledError
             }
         }
     }
-    Ok(record)
+    Ok((record, lofty_duration))
 }
 
-/// Extracts duration (`H:MM:SS` string), sample rate, and channel count from a rodio
-/// [`Source`] and returns them as a nushell [`Record`].
+/// Extracts duration, sample rate, and channel count from a rodio [`Source`] and returns
+/// them as a nushell [`Record`].
 ///
-/// This function is intentionally decoupled from file I/O so it can later accept a
-/// [`Source`] derived from a byte stream (streaming pipeline support).
-fn parse_stream_meta(source: &impl Source, span: Span) -> Record {
+/// `lofty_duration` is the container-header duration extracted by [`parse_tags`] and
+/// serves as a fallback when `source.total_duration()` returns `None` (e.g. when the
+/// minimp3 decoder is in use).  Only emits `Value::nothing` for the duration field when
+/// both sources are unavailable.
+///
+/// Duration strings are formatted via [`format_duration`] (`M:SS` / `H:MM:SS`) so the
+/// output matches the live progress display in `audio_player`.
+fn parse_stream_meta(source: &impl Source, lofty_duration: Option<Duration>, span: Span) -> Record {
     let mut record = record! {};
-    if let Some(d) = source.total_duration() {
-        let total_secs = d.as_secs();
-        let h = total_secs / 3600;
-        let m = (total_secs % 3600) / 60;
-        let s = total_secs % 60;
-        record.push("duration", Value::string(format!("{}:{:02}:{:02}", h, m, s), span));
+    let duration = source.total_duration().or(lofty_duration);
+    if let Some(d) = duration {
+        record.push("duration", Value::string(format_duration(d), span));
     } else {
         warn!("Duration unavailable for source");
         record.push("duration", Value::nothing(span));

@@ -31,8 +31,12 @@ pub static TAG_MAP: LazyLock<BTreeMap<&'static str, ItemKey>> = LazyLock::new(||
         ("movement",           ItemKey::Movement),
         ("movementnumber",     ItemKey::MovementNumber),
         ("movementtotal",      ItemKey::MovementTotal),
+        // "organization" follows the Vorbis/TXXX convention where many taggers
+        // expose the Publisher field as ORGANIZATION; use either key name.
         ("organization",       ItemKey::Publisher),
         ("producer",           ItemKey::Producer),
+        // "publisher" is a direct alias for "organization" → ItemKey::Publisher.
+        ("publisher",          ItemKey::Publisher),
         ("remixer",            ItemKey::Remixer),
         ("work",               ItemKey::Work),
 

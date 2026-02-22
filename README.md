@@ -115,12 +115,12 @@ FLAC and lossless files additionally expose `bit_depth`:
 
 ```nushell
 sound meta audio.flac | select size format bitrate bit_depth
-# ╭───────────┬──────╮
-# │ size      │ ... │
-# │ format    │ flac │
-# │ bitrate   │ 1411 │
-# │ bit_depth │ 24   │
-# ╰───────────┴──────╯
+# ╭───────────┬──────────╮
+# │ size      │ 42.3 MiB │
+# │ format    │ flac     │
+# │ bitrate   │ 1411     │
+# │ bit_depth │ 24       │
+# ╰───────────┴──────────╯
 ```
 
 ### Modify metadata (change the artist tag)
