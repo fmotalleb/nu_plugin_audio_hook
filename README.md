@@ -10,7 +10,7 @@ A [Nushell](https://www.nushell.sh/) plugin for generating and playing sounds. S
 - **`sound make`** — Generate a noise with a given frequency and duration.
 - **`sound meta`** — Retrieve metadata (duration, artist, album, etc.) from an audio file.
 - **`sound meta set`** — Modify ID3 metadata frames in an audio file. [More about ID3](https://docs.puddletag.net/source/id3.html).
-- **`sound play`** — Play an audio file. By default, supports FLAC, WAV, MP3, and OGG. Use the `all-decoders` feature to enable AAC and MP4 playback.
+- **`sound play`** — Play an audio file with a live progress display, interactive controls, and volume adjustment. By default supports FLAC, WAV, MP3, and OGG. Use the `all-decoders` feature to enable AAC and MP4 playback.
 
 ---
 
@@ -46,16 +46,28 @@ sound make 1000 200ms --data | save --raw output.wav
 sound play audio.mp3 -d 3sec
 ```
 
-### Play an audio file with 2x volume
+### Play an audio file starting at 2x volume
 
 ```bash
 sound play audio.mp3 -a 2.0
 ```
 
-### Play an audio file with 50% volume
+### Play an audio file starting at 50% volume
 
 ```bash
 sound play audio.mp3 -a 0.5
+```
+
+### Play silently — no terminal output (for scripting or background use)
+
+```bash
+sound play audio.mp3 --no-progress
+```
+
+### Play with Nerd Font icons
+
+```bash
+sound play audio.mp3 --nerd-fonts
 ```
 
 ### Retrieve metadata from an audio file
@@ -99,6 +111,56 @@ sound meta audio.mp3 | sound play audio.mp3 -d $in.duration
 ```bash
 sound meta --all
 ```
+
+---
+
+## Live Playback Display
+
+When playing a file, `sound play` renders a live progress bar to stderr:
+
+```nushell
+▶  0:42 / 4:05  [██████████░░░░░░░░░░░░░░░░░░░░]  17%  🔊 [████████░░░░░░] 100%
+```
+
+Because the display writes to stderr, stdout remains clean — piping the result of `sound play` to another command works without any garbled output. Use `--no-progress` (`-q`) to suppress the display entirely for scripting or background use.
+
+### Nerd Font mode
+
+If you have a [Nerd Font](https://www.nerdfonts.com) installed and configured in your terminal, pass `--nerd-fonts` (`-n`) or set `NERD_FONTS=1` in your environment for richer icons:
+
+```nushell
+  0:42 / 4:05  [██████████░░░░░░░░░░░░░░░░░░░░]  17%   [████████░░░░░░] 100%
+```
+
+To enable permanently, add this to your `env.nu`:
+
+```nushell
+$env.NERD_FONTS = "1"
+```
+
+---
+
+## Interactive Controls
+
+For files longer than **1 minute**, interactive keyboard controls are enabled automatically:
+
+| Key | Action |
+| --- | --- |
+| `Space` | Play / pause |
+| `→` or `l` | Seek forward 5 seconds |
+| `←` or `h` | Seek backward 5 seconds |
+| `↑` or `k` | Volume up 5% |
+| `↓` or `j` | Volume down 5% |
+| `m` | Toggle mute |
+| `q` or `Esc` | Stop and quit |
+
+The control hint is shown inline on the progress bar and updates live to reflect the current state:
+
+```nushell
+▶  0:42 / 4:05  [██████████░░░░░░░░░░░░░░░░░░░░]  17%  🔊 [████████░░░░░░] 100%  « [SPACE/pause] »  [↑↓/kj] vol  [m] mute  [q] quit
+```
+
+Use `--no-progress` to disable all terminal output and controls, which is recommended when running in the background or piping output.
 
 ---
 
@@ -165,20 +227,52 @@ plugin add ~/.cargo/bin/nu_plugin_audio_hook
 
 ---
 
-## Supported features
+## Supported formats
 
-You can enable specific features when compiling or installing:
+### Default install
 
-- **`full`** — Enables all features below.
-- **`flac`** (default) — FLAC format support.
-- **`vorbis`** (default) — OGG Vorbis support.
-- **`wav`** (default) — WAV format support.
-- **`minimp3`** — MP3 decoding.
-- **`symphonia-all`** — Enables all Symphonia-based decoders:
-  - `symphonia-aac` — AAC decoding.
-  - `symphonia-flac` — FLAC decoding.
-  - `symphonia-isomp4` — MP4 (audio) decoding.
-  - `symphonia-mp3` (default) — MP3 decoding.
-  - `symphonia-vorbis` — OGG Vorbis decoding.
-  - `symphonia-wav` — WAV decoding.
-  
+Enabled out of the box with no extra flags:
+
+| Format | Feature flag | Notes |
+| --- | --- | --- |
+| MP3 | `symphonia-mp3` | Via Symphonia; better accuracy than minimp3 |
+| FLAC | `flac` | Lossless compression |
+| OGG Vorbis | `vorbis` | Open lossy format |
+| WAV | `wav` | Uncompressed PCM |
+
+### With `--features=all-decoders` (recommended)
+
+Everything above plus:
+
+| Format | Feature flag | Notes |
+| --- | --- | --- |
+| AAC | `symphonia-aac` | Used by Apple, YouTube, most streaming services |
+| MP4 / M4A | `symphonia-isomp4` | Container for AAC and ALAC |
+| ALAC | `symphonia-all` | Apple Lossless; only available via bundle |
+| ADPCM | `symphonia-all` | Adaptive PCM; common in games |
+| CAF | `symphonia-all` | Core Audio Format; Apple professional audio |
+| MKV / WebM (Opus) | `symphonia-all` | Open container with Opus codec |
+| MP3 (minimp3) | `minimp3` | Lightweight alternative MP3 decoder |
+| FLAC (Symphonia) | `symphonia-flac` | Alternative FLAC decoder |
+| OGG (Symphonia) | `symphonia-vorbis` | Alternative Vorbis decoder |
+| WAV (Symphonia) | `symphonia-wav` | Alternative WAV decoder |
+
+> **Note:** ALAC, ADPCM, CAF, and MKV/Opus are only available through the
+> `symphonia-all` bundle. rodio 0.21 does not expose them as individual feature
+> flags. All other formats can be opted into selectively.
+
+### Compile with specific formats only
+
+```bash
+# MP3 + AAC + MP4 only
+cargo build -r --locked --features=symphonia-mp3,symphonia-aac,symphonia-isomp4
+
+# Everything
+cargo build -r --locked --features=all-decoders
+```
+
+---
+
+## Contributors
+
+See [CONTRIBUTORS.md](CONTRIBUTORS.md) for the full list of contributors.

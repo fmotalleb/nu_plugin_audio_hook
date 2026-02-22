@@ -1286,13 +1286,14 @@ name = "nu_plugin_audio_hook"
 version = "0.110.0"
 dependencies = [
  "chrono",
+ "crossterm",
  "env_logger",
  "id3",
- "lazy_static",
  "log",
  "nu-plugin",
  "nu-protocol",
  "rodio",
+ "unicode-width 0.2.2",
 ]
 
 [[package]]

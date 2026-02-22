@@ -1,10 +1,10 @@
 use std::collections::HashMap;
+use std::sync::LazyLock;
 
-use lazy_static::lazy_static;
 use nu_protocol::{record, Span, Value};
 
-lazy_static! {
-    pub static ref ID3_HASHMAP: HashMap<&'static str, &'static str> = HashMap::from([
+pub static ID3_HASHMAP: LazyLock<HashMap<&'static str, &'static str>> = LazyLock::new(|| {
+    HashMap::from([
         ("album", "TALB"),
         ("albumartist", "TPE2"),
         ("albumsortorder", "TSOA"),
@@ -64,9 +64,10 @@ lazy_static! {
         ("originalreleasetime", "TDOR"),
         ("releasetime", "TDRL"),
         ("taggingtime", "TDTG"),
-        ("recordingyear", "TDRC")
-    ]);
-}
+        ("recordingyear", "TDRC"),
+    ])
+});
+
 pub fn get_meta_records(span: Span) -> Value {
     let mut result: Vec<Value> = vec![];
     for (key, val) in ID3_HASHMAP.iter() {
