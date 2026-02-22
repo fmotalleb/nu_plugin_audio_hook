@@ -4,7 +4,7 @@ use std::sync::LazyLock;
 use lofty::tag::ItemKey;
 use nu_protocol::{record, Span, Value};
 
-pub static ID3_HASHMAP: LazyLock<HashMap<&'static str, ItemKey>> = LazyLock::new(|| {
+pub static TAG_MAP: LazyLock<HashMap<&'static str, ItemKey>> = LazyLock::new(|| {
     HashMap::from([
         ("album", ItemKey::AlbumTitle),
         ("albumartist", ItemKey::AlbumArtist),
@@ -39,7 +39,7 @@ pub static ID3_HASHMAP: LazyLock<HashMap<&'static str, ItemKey>> = LazyLock::new
 
 pub fn get_meta_records(span: Span) -> Value {
     let mut result: Vec<Value> = vec![];
-    for (key, val) in ID3_HASHMAP.iter() {
+    for (key, val) in TAG_MAP.iter() {
         result.push(Value::record(
             record! {
                 "normalized"=>Value::string(key.to_string(), span),

@@ -9,7 +9,7 @@ use rodio::{Decoder, Source};
 use std::io::Seek;
 
 use crate::{
-    constants::{get_meta_records, ID3_HASHMAP},
+    constants::{get_meta_records, TAG_MAP},
     utils::load_file,
     Sound,
 };
@@ -24,13 +24,13 @@ impl SimplePluginCommand for SoundMetaSetCmd {
     fn signature(&self) -> nu_protocol::Signature {
         Signature::new("sound meta set")
             .required("File Path", SyntaxShape::Filepath, "file to update")
-            .required_named("key", SyntaxShape::String, "id3 key", Some('k'))
-            .required_named("value", SyntaxShape::String, "id3 value", Some('v'))
+            .required_named("key", SyntaxShape::String, "metadata key", Some('k'))
+            .required_named("value", SyntaxShape::String, "metadata value", Some('v'))
             .category(Category::Experimental)
     }
 
     fn description(&self) -> &str {
-        "set an ID3 frame on an audio file"
+        "set a metadata tag on an audio file"
     }
 
     fn run(
@@ -83,53 +83,66 @@ fn parse_meta(
     mut file_value: std::fs::File,
     path: std::path::PathBuf,
 ) -> Result<Value, LabeledError> {
-    let file_size = file_value.metadata().map(|m| m.len()).unwrap_or(0);
+    let mut record = parse_tags(&path, call.head)?;
 
-    let tagged_file = read_from_path(&path).ok();
-    let mut other = record! {};
     if let Err(e) = file_value.rewind() {
         return Err(LabeledError::new(e.to_string()).with_label("error seeking file", call.head));
     }
 
-    other.push("size", Value::filesize(file_size as i64, call.head));
-    if let Some(ext) = path.extension() {
-        other.push("format", Value::string(ext.to_string_lossy().to_string(), call.head));
-    }
-
     if let Ok(source) = Decoder::try_from(file_value) {
-        if let Some(d) = source.total_duration() {
-            let nanos = d.as_nanos().try_into().unwrap_or(0);
-            other.push("duration", Value::duration(nanos, call.head));
-        } else {
-            warn!("Duration unavailable for source");
-            other.push("duration", Value::nothing(call.head));
-            // TODO: fallback estimation by filesize
+        let stream_meta = parse_stream_meta(&source, call.head);
+        for (col, val) in stream_meta {
+            record.push(col, val);
         }
-        other.push("sample_rate", Value::int(source.sample_rate() as i64, call.head));
-        other.push("channels", Value::int(source.channels() as i64, call.head));
     }
 
+    Ok(Value::record(record, call.head))
+}
+
+fn parse_tags(path: &std::path::Path, span: Span) -> Result<Record, LabeledError> {
+    let mut record = record! {};
+
+    let file = std::fs::File::open(path).map_err(|e| {
+        LabeledError::new(e.to_string()).with_label("error opening file", span)
+    })?;
+    let file_size = file.metadata().map(|m| m.len()).unwrap_or(0);
+    record.push("size", Value::filesize(file_size as i64, span));
+
+    if let Some(ext) = path.extension() {
+        record.push("format", Value::string(ext.to_string_lossy().to_string(), span));
+    }
+
+    let tagged_file = read_from_path(path).ok();
     if let Some(tagged_file) = tagged_file {
         if let Some(tag) = tagged_file.primary_tag() {
-            for (key, val) in ID3_HASHMAP.iter() {
+            for (key, val) in TAG_MAP.iter() {
                 if let Some(result) = tag.get_string(val) {
-                    insert_into_str(
-                        &mut other,
-                        key,
-                        Some(result.to_string()),
-                        call.head,
-                    )
+                    insert_into_str(&mut record, key, Some(result.to_string()), span)
                 }
             }
 
-            insert_into_integer(&mut other, "track_no", tag.track(), call.head);
-            insert_into_integer(&mut other, "total_tracks", tag.track_total(), call.head);
-            insert_into_integer(&mut other, "disc_no", tag.disk(), call.head);
-            insert_into_integer(&mut other, "total_discs", tag.disk_total(), call.head);
+            insert_into_integer(&mut record, "track_no", tag.track(), span);
+            insert_into_integer(&mut record, "total_tracks", tag.track_total(), span);
+            insert_into_integer(&mut record, "disc_no", tag.disk(), span);
+            insert_into_integer(&mut record, "total_discs", tag.disk_total(), span);
         }
     }
+    Ok(record)
+}
 
-    Ok(Value::record(other, call.head))
+fn parse_stream_meta(source: &impl Source, span: Span) -> Record {
+    let mut record = record! {};
+    if let Some(d) = source.total_duration() {
+        let nanos = d.as_nanos().try_into().unwrap_or(0);
+        record.push("duration", Value::duration(nanos, span));
+    } else {
+        warn!("Duration unavailable for source");
+        record.push("duration", Value::nothing(span));
+        // TODO: fallback estimation by filesize
+    }
+    record.push("sample_rate", Value::int(source.sample_rate() as i64, span));
+    record.push("channels", Value::int(source.channels() as i64, span));
+    record
 }
 
 fn audio_meta_set(engine: &nu_plugin::EngineInterface, call: &EvaluatedCall) -> Result<Value, LabeledError> {
@@ -154,7 +167,7 @@ fn audio_meta_set(engine: &nu_plugin::EngineInterface, call: &EvaluatedCall) -> 
         LabeledError::new(e.to_string()).with_label("error reading file", call.head)
     })?;
 
-    let item_key = ID3_HASHMAP.get(key.as_str()).ok_or_else(|| {
+    let item_key = TAG_MAP.get(key.as_str()).ok_or_else(|| {
         LabeledError::new(format!("Unknown metadata key: {}", key))
             .with_label("key not found", call.head)
     })?;

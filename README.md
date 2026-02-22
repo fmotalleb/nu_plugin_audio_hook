@@ -9,7 +9,7 @@ A [Nushell](https://www.nushell.sh/) plugin for generating and playing sounds. S
 - **`sound beep`** — Play a simple beep sound.
 - **`sound make`** — Generate a noise with a given frequency and duration.
 - **`sound meta`** — Retrieve metadata (duration, artist, album, etc.) from an audio file.
-- **`sound meta set`** — Modify ID3 metadata frames in an audio file. [More about ID3](https://docs.puddletag.net/source/id3.html).
+- **`sound meta set`** — Modify metadata tags in an audio file using format-agnostic key names.
 - **`sound play`** — Play an audio file with a live progress display, interactive controls, and volume adjustment. By default supports FLAC, WAV, MP3, and OGG. Use the `all-decoders` feature to enable AAC and MP4 playback.
 
 ---
@@ -94,11 +94,13 @@ Example output:
 ╰──────────────┴────────────────────────────╯
 ```
 
-### Modify ID3 metadata (change the artist tag)
+### Modify metadata (change the artist tag)
 
 ```bash
-sound meta set audio.mp3 -k TPE1 -v new-artist
+sound meta set audio.mp3 -k TrackArtist -v "new-artist"
 ```
+
+Key names are format-agnostic — the same key works across MP3, FLAC, OGG, and MP4 files. Use `sound meta --all` to list every available key name.
 
 ### Play an audio file using its metadata duration
 
@@ -106,7 +108,7 @@ sound meta set audio.mp3 -k TPE1 -v new-artist
 sound meta audio.mp3 | sound play audio.mp3 -d $in.duration
 ```
 
-### List all available ID3 frame names
+### List all available metadata key names
 
 ```bash
 sound meta --all
