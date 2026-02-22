@@ -68,7 +68,7 @@ jobs:
 
           cargo update interprocess --precise 2.2.1
           cargo update
-          cargo build
+          cargo check
 
       - name: Update CONTRIBUTORS.md
         run: |
