@@ -5,7 +5,8 @@ use crossterm::{
     style::{Attribute, SetAttribute},
     terminal::{disable_raw_mode, enable_raw_mode, size, Clear, ClearType},
 };
-use id3::{Tag, TagLike};
+use lofty::file::{AudioFile, TaggedFileExt};
+use lofty::prelude::Accessor;
 use nu_plugin::{EngineInterface, EvaluatedCall, SimplePluginCommand};
 use nu_protocol::{Category, Example, LabeledError, Signature, SyntaxShape, Value};
 use rodio::{source::Source, Decoder, OutputStreamBuilder, Sink};
@@ -14,7 +15,7 @@ use std::io::{stderr, Write};
 use std::time::{Duration, Instant};
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
-use crate::{utils::load_file, Sound};
+use crate::{utils::{format_duration, load_file}, Sound};
 
 /// Interval for checking keyboard input.
 const KEY_POLL_INTERVAL: Duration = Duration::from_millis(200);
@@ -34,7 +35,10 @@ const VOLUME_STEP: f32 = 0.05;
 /// Maximum volume (200%).
 const VOLUME_MAX: f32 = 2.0;
 
-/// Which icon/character set to use for rendering.
+/// Selects the glyph set used for the live progress display.
+///
+/// Priority order for resolution: `--nerd-fonts` flag → `NERD_FONTS=1` env var →
+/// Unicode (if the terminal locale advertises UTF-8) → ASCII fallback.
 #[derive(Clone, Copy, PartialEq)]
 enum IconSet {
     /// Nerd Font glyphs — richest, requires a patched font.
@@ -46,12 +50,19 @@ enum IconSet {
 }
 
 impl IconSet {
+    /// Play icon: `▶` / `>`.
     fn play(&self)         -> &'static str { match self { Self::NerdFont => "\u{f04b}", Self::Unicode => "▶",  Self::Ascii => ">"   } }
+    /// Pause icon: `⏸` / `||`.
     fn pause(&self)        -> &'static str { match self { Self::NerdFont => "\u{f04c}", Self::Unicode => "⏸", Self::Ascii => "||"  } }
+    /// Rewind / seek-back icon: `«` / `<<`.
     fn rewind(&self)       -> &'static str { match self { Self::NerdFont => "\u{f04a}", Self::Unicode => "«",  Self::Ascii => "<<"  } }
+    /// Fast-forward / seek-forward icon: `»` / `>>`.
     fn fast_forward(&self) -> &'static str { match self { Self::NerdFont => "\u{f04e}", Self::Unicode => "»",  Self::Ascii => ">>"  } }
+    /// Music note / track decoration icon.
     fn music(&self)        -> &'static str { match self { Self::NerdFont => "\u{f001}", Self::Unicode => "♪",  Self::Ascii => "#"   } }
+    /// Filled bar segment.
     fn fill(&self)         -> &'static str { match self { Self::NerdFont => "█",        Self::Unicode => "█",  Self::Ascii => "#"   } }
+    /// Empty bar segment.
     fn empty(&self)        -> &'static str { match self { Self::NerdFont => "░",        Self::Unicode => "░",  Self::Ascii => "."   } }
 
     /// Volume icon — three tiers based on level.
@@ -76,6 +87,8 @@ impl IconSet {
     }
 }
 
+/// Nushell command `sound play` — decodes and plays an audio file with a live
+/// progress bar on stderr and optional interactive keyboard controls.
 pub struct SoundPlayCmd;
 impl SimplePluginCommand for SoundPlayCmd {
     type Plugin = Sound;
@@ -90,7 +103,7 @@ impl SimplePluginCommand for SoundPlayCmd {
             .named(
                 "duration",
                 SyntaxShape::Duration,
-                "duration of file (mandatory for non-wave formats like mp3) (default 1 hour)",
+                "truncate playback to this duration (default: auto-detected from file headers)",
                 Some('d'),
             )
             .named(
@@ -130,8 +143,8 @@ impl SimplePluginCommand for SoundPlayCmd {
                 result: None,
             },
             Example {
-                description: "play a sound for its metadata duration",
-                example: "sound meta audio.mp4 | sound play audio.mp3 -d $in.duration",
+                description: "play a sound for its detected metadata duration",
+                example: "sound play audio.mp3",
                 result: None,
             },
             Example {
@@ -171,6 +184,11 @@ impl SimplePluginCommand for SoundPlayCmd {
 // Core playback
 // ---------------------------------------------------------------------------
 
+/// Opens the default audio output, decodes the file via rodio, and delegates to
+/// either [`wait_silent`] or [`wait_with_progress`] depending on `--no-progress`.
+///
+/// Duration is resolved in priority order: `-d` flag → `source.total_duration()` →
+/// `lofty::FileProperties::duration()` → 1-hour safety fallback.
 fn play_audio(engine: &EngineInterface, call: &EvaluatedCall) -> Result<(), LabeledError> {
     let (file_span, file, path) = load_file(engine, call)?;
 
@@ -184,11 +202,14 @@ fn play_audio(engine: &EngineInterface, call: &EvaluatedCall) -> Result<(), Labe
         LabeledError::new(err.to_string()).with_label("audio decoder exception", file_span)
     })?;
 
-    let (title, artist) = if let Ok(tag) = Tag::read_from_path(&path) {
-        (tag.title().map(|s| s.to_string()), tag.artist().map(|s| s.to_string()))
-    } else {
-        (None, None)
-    };
+    // Read the tagged file once; reuse the result for both metadata and duration fallback.
+    let tagged_file_res = lofty::read_from_path(&path);
+    let (title, artist) = tagged_file_res
+        .as_ref()
+        .ok()
+        .and_then(|tf| tf.primary_tag())
+        .map(|tag| (tag.title().map(|s| s.to_string()), tag.artist().map(|s| s.to_string())))
+        .unwrap_or((None, None));
 
     // Volume is now set on the Sink rather than baked into the source with
     // amplify(), so it can be changed live and survives seeks correctly.
@@ -197,7 +218,15 @@ fn play_audio(engine: &EngineInterface, call: &EvaluatedCall) -> Result<(), Labe
         _ => 1.0,
     };
 
-    let source_duration = source.total_duration();
+    // Prefer rodio's own duration; fall back to lofty's container-header duration
+    // so that minimp3 (which cannot seek-scan) still reports the correct length
+    // without needing a manual -d flag.
+    let source_duration: Option<Duration> = source.total_duration().or_else(|| {
+        tagged_file_res
+            .ok()
+            .map(|tf| tf.properties().duration())
+            .filter(|d| !d.is_zero())
+    });
 
     let sink = Sink::connect_new(output_stream.mixer());
     sink.append(source);
@@ -251,6 +280,10 @@ fn resolve_icon_set(call: &EvaluatedCall) -> IconSet {
 // Wait strategies
 // ---------------------------------------------------------------------------
 
+/// Waits for playback to finish without rendering any output to stderr.
+///
+/// Exits early when `sink.empty()` returns `true` so the command returns promptly
+/// at the real end of the stream rather than sleeping for the full `total` duration.
 fn wait_silent(
     engine: &EngineInterface,
     call: &EvaluatedCall,
@@ -267,6 +300,11 @@ fn wait_silent(
     Ok(())
 }
 
+/// Renders a live progress line (and optional header) to stderr while the sink plays.
+///
+/// For files longer than [`CONTROLS_THRESHOLD`] the terminal is placed in raw mode and
+/// keyboard events (space, arrows, `m`, `q`) are processed. Raw mode is always restored
+/// on exit, even if an error occurs.
 fn wait_with_progress(
     engine: &EngineInterface,
     call: &EvaluatedCall,
@@ -577,6 +615,10 @@ fn render_progress(
     let _ = err.flush();
 }
 
+/// Renders a single progress bar of the given `width` as a `String`.
+///
+/// For [`IconSet::NerdFont`] a fractional leading block character is used for
+/// sub-cell precision; other icon sets round to the nearest whole cell.
 fn render_bar(ratio: f64, width: usize, icons: &IconSet) -> String {
     let ratio = ratio.clamp(0.0, 1.0);
     let f_width = ratio * width as f64;
@@ -623,20 +665,6 @@ fn render_bar(ratio: f64, width: usize, icons: &IconSet) -> String {
     s
 }
 
-/// Formats a `Duration` as `M:SS`, or `H:MM:SS` for durations >= 1 hour.
-fn format_duration(d: Duration) -> String {
-    let total_secs = d.as_secs();
-    let hours   = total_secs / 3600;
-    let minutes = (total_secs % 3600) / 60;
-    let seconds = total_secs % 60;
-
-    if hours > 0 {
-        format!("{hours}:{minutes:02}:{seconds:02}")
-    } else {
-        format!("{minutes}:{seconds:02}")
-    }
-}
-
 /// Returns `true` if the current terminal environment is likely to support Unicode.
 fn terminal_supports_unicode() -> bool {
     #[cfg(target_os = "windows")]
@@ -661,6 +689,8 @@ fn terminal_supports_unicode() -> bool {
 // Helpers
 // ---------------------------------------------------------------------------
 
+/// Reads a nushell `Duration` flag by name and converts it to [`std::time::Duration`].
+/// Returns `None` if the flag was not supplied or contains a negative value.
 fn load_duration_from(call: &EvaluatedCall, name: &str) -> Option<Duration> {
     match call.get_flag_value(name) {
         Some(Value::Duration { val, .. }) if val >= 0 => Some(Duration::from_nanos(val as u64)),

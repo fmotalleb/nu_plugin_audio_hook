@@ -1,6 +1,6 @@
 use nu_plugin::{EngineInterface, EvaluatedCall};
 use nu_protocol::{LabeledError, Span, Value};
-use std::{fs::File, path::PathBuf};
+use std::{fs::File, path::PathBuf, time::Duration};
 
 pub fn resolve_filepath(
     engine: &EngineInterface,
@@ -37,6 +37,23 @@ pub fn load_file_path(
 
     let file_path = resolve_filepath(engine, span, file_path)?;
     Ok((span, file_path))
+}
+
+/// Formats a [`Duration`] as `M:SS`, or `H:MM:SS` for durations ≥ 1 hour.
+///
+/// Shared by `audio_meta` (duration field in metadata records) and `audio_player`
+/// (live progress display) so both always produce identical output.
+pub fn format_duration(d: Duration) -> String {
+    let total_secs = d.as_secs();
+    let hours   = total_secs / 3600;
+    let minutes = (total_secs % 3600) / 60;
+    let seconds = total_secs % 60;
+
+    if hours > 0 {
+        format!("{hours}:{minutes:02}:{seconds:02}")
+    } else {
+        format!("{minutes}:{seconds:02}")
+    }
 }
 
 pub fn load_file(
