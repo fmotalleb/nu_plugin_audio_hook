@@ -1,10 +1,10 @@
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 0 */2 * *' 
-  
+    - cron: '0 0 */2 * *'
+
 name: Update dependencies
-  
+
 jobs:
   update:
     runs-on: ubuntu-latest
@@ -13,29 +13,57 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y alsa-utils libasound2-dev
+
       - name: Setup Nushell
         uses: hustcer/setup-nu@main
         with:
           version: "0.108.0"
-      - uses: actions/checkout@v2
-      - name: upgrade
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Upgrade dependencies
         id: upgrade
         shell: nu {0}
         run: |
           http get https://raw.githubusercontent.com/FMotalleb/nushell_sync_script/refs/heads/main/bump_dependencies.nu
             | save /tmp/update.nu
           nu /tmp/update.nu
-      - uses: EndBug/add-and-commit@v9 
+
+      - name: Update CONTRIBUTORS.md
+        run: |
+          echo "# Contributors" > CONTRIBUTORS.md
+          echo "" >> CONTRIBUTORS.md
+          git shortlog -sne --all \
+            | grep -v "GitHub-Action" \
+            | awk '{
+                count=$1; $1="";
+                sub(/^ /, "");
+                plural = (count == 1) ? "commit" : "commits";
+                print "- **"count" "plural"** — "$0
+              }' >> CONTRIBUTORS.md
+
+      - uses: EndBug/add-and-commit@v9
         with:
           author_name: GitHub-Action
+          message: "chore: bump dependencies and update contributors"
+
+      - name: Check for new commits
+        id: check_commits
+        run: |
+          echo "has_commits=$(git log --oneline -1 --format='%H' | wc -l | tr -d ' ')" >> $GITHUB_OUTPUT
+
       - name: Extract Version
         id: extract_version
+        if: steps.check_commits.outputs.has_commits == '1'
         shell: nu {0}
         run: |
           let version = (open Cargo.toml | get package.version | str trim)
           $"version=($version)" | save --force $env.GITHUB_OUTPUT
 
       - name: Create GitHub Release
+        if: steps.check_commits.outputs.has_commits == '1'
         uses: softprops/action-gh-release@v1
         with:
           tag_name: v${{ steps.extract_version.outputs.version }}
