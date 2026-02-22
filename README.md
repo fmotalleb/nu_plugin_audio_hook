@@ -180,6 +180,7 @@ Key names are normalised to lowercase before lookup, so `Artist`, `ARTIST`, and 
 | `movementtotal` | Total movements |
 | `organization` | Publisher |
 | `producer` | Producer |
+| `publisher` | Publisher (alias for `organization`) |
 | `remixer` | Remixer / mix artist |
 | `work` | Work title |
 

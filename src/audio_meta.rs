@@ -8,6 +8,7 @@ use nu_protocol::{record, Category, LabeledError, Record, Signature, Span, Synta
 use rodio::{Decoder, Source};
 use std::io::Seek;
 use std::time::Duration;
+use std::collections::HashSet;
 
 use crate::{
     constants::{get_meta_records, TAG_MAP},
@@ -147,7 +148,11 @@ fn parse_tags(path: &std::path::Path, span: Span) -> Result<(Record, Option<Dura
         record.push("format", Value::string(ext.to_string_lossy().to_string(), span));
     }
 
-    let tagged_file = read_from_path(path).ok();
+    let tagged_file_res = read_from_path(path);
+    if let Err(ref e) = tagged_file_res {
+        warn!("Error reading tags from {:?}: {}", path, e);
+    }
+    let tagged_file = tagged_file_res.ok();
     if let Some(tagged_file) = tagged_file {
         // ── FileProperties ────────────────────────────────────────────────────
         let props = tagged_file.properties();
@@ -169,12 +174,17 @@ fn parse_tags(path: &std::path::Path, span: Span) -> Result<(Record, Option<Dura
 
         // ── Tag fields ────────────────────────────────────────────────────────
         if let Some(tag) = tagged_file.primary_tag() {
+            let mut seen_keys = HashSet::new();
             for (key, val) in TAG_MAP.iter() {
                 if *val == lofty::tag::ItemKey::TrackNumber || *val == lofty::tag::ItemKey::DiscNumber {
                     continue;
                 }
+                if seen_keys.contains(val) {
+                    continue;
+                }
                 if let Some(result) = tag.get_string(*val) {
-                    insert_into_str(&mut record, key, Some(result.to_string()), span)
+                    insert_into_str(&mut record, key, Some(result.to_string()), span);
+                    seen_keys.insert(*val);
                 }
             }
 
