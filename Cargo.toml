@@ -40,7 +40,7 @@ features = ["plugin"]
 version = "0.21.1"
 
 [dependencies.unicode-width]
-version = "0.1"
+version = "0.2"
 
 [features]
 # ── Recommended ─────────────────────────────────────────────────────────────

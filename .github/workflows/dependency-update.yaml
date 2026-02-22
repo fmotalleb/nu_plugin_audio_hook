@@ -31,8 +31,8 @@ jobs:
         id: upgrade
         shell: nu {0}
         run: |
-          # Pinned to commit 2b1f155
-          http get https://raw.githubusercontent.com/FMotalleb/nushell_sync_script/2b1f155/bump_dependencies.nu
+          # Pinned to commit 2b1f15507005879c0c4d026390bc8d09d97270f8 (2025-06-25: use crates.io for version lookup)
+          http get https://raw.githubusercontent.com/FMotalleb/nushell_sync_script/2b1f15507005879c0c4d026390bc8d09d97270f8/bump_dependencies.nu
             | save /tmp/update.nu
           nu /tmp/update.nu
 
@@ -40,7 +40,7 @@ jobs:
         run: |
           echo "# Contributors" > CONTRIBUTORS.md
           echo "" >> CONTRIBUTORS.md
-          git shortlog -sne --all \
+          git shortlog -sn --all \
             | grep -v "GitHub-Action" \
             | awk '{
                 count=$1; $1="";
@@ -49,7 +49,7 @@ jobs:
                 print "- **"count" "plural"** — "$0
               }' >> CONTRIBUTORS.md
 
-      - uses: EndBug/add-and-commit@v9
+      - uses: EndBug/add-and-commit@a94899bca583c204427a224a7af87c02f9b325d5  # v9
         with:
           author_name: GitHub-Action
           message: "chore: bump dependencies and update contributors"
@@ -73,7 +73,7 @@ jobs:
 
       - name: Create GitHub Release
         if: steps.check_commits.outputs.has_commits == '1'
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b  # v2.5.0
         with:
           tag_name: v${{ steps.extract_version.outputs.version }}
           name: Release v${{ steps.extract_version.outputs.version }}

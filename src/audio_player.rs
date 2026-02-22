@@ -508,14 +508,20 @@ fn render_progress(
         // If bar_width >= 15, vol = bar_width / 3. Total = 4/3 * bar_width.
         // If bar_width < 15, vol = 5. Total = bar_width + 5.
 
+        let min_vol = 5usize;
+        let max_bar = available.saturating_sub(min_vol);
         let target = (available * 3) / 4;
         bar_width = if target >= 15 {
             target
         } else {
-            available.saturating_sub(5)
+            available.saturating_sub(min_vol)
         };
-        bar_width = bar_width.clamp(10, 60);
-        vol_bar_width = (bar_width / 3).max(5);
+        bar_width = bar_width.clamp(10, 60).min(max_bar);
+        vol_bar_width = (bar_width / 3).max(min_vol);
+        // Final guard: ensure bar_width + vol_bar_width never exceeds available.
+        if bar_width + vol_bar_width > available {
+            bar_width = available.saturating_sub(vol_bar_width).max(10);
+        }
     }
 
     let bar = render_bar(ratio, bar_width, icons);
@@ -543,7 +549,11 @@ fn render_bar(ratio: f64, width: usize, icons: &IconSet) -> String {
         (f_width.round() as usize).min(width)
     };
 
-    let mut s = String::with_capacity(width + 2);
+    let bytes_per_char = match icons {
+        IconSet::Ascii => 1,
+        _ => 3, // NerdFont and Unicode use 3-byte UTF-8 chars (e.g. █ U+2588, ░ U+2591)
+    };
+    let mut s = String::with_capacity(width * bytes_per_char + 2);
     s.push('[');
 
     for _ in 0..n_full {

@@ -119,7 +119,7 @@ sound meta --all
 When playing a file, `sound play` renders a live progress bar to stderr:
 
 ```nushell
-▶  0:42 / 4:05  [██████████░░░░░░░░░░░░░░░░░░░░]  17%  🔊 100%
+▶  0:42 / 4:05  [██████████░░░░░░░░░░░░░░░░░░░░]  17%  🔊 [████████░░░░░░] 100%
 ```
 
 Because the display writes to stderr, stdout remains clean — piping the result of `sound play` to another command works without any garbled output. Use `--no-progress` (`-q`) to suppress the display entirely for scripting or background use.
@@ -129,7 +129,7 @@ Because the display writes to stderr, stdout remains clean — piping the result
 If you have a [Nerd Font](https://www.nerdfonts.com) installed and configured in your terminal, pass `--nerd-fonts` (`-n`) or set `NERD_FONTS=1` in your environment for richer icons:
 
 ```nushell
-  0:42 / 4:05  [██████████░░░░░░░░░░░░░░░░░░░░]  17%   100%
+  0:42 / 4:05  [██████████░░░░░░░░░░░░░░░░░░░░]  17%   [████████░░░░░░] 100%
 ```
 
 To enable permanently, add this to your `env.nu`:
@@ -157,7 +157,7 @@ For files longer than **1 minute**, interactive keyboard controls are enabled au
 The control hint is shown inline on the progress bar and updates live to reflect the current state:
 
 ```nushell
-▶  0:42 / 4:05  [██████████░░░░░░░░░░░░░░░░░░░░]  17%  🔊 100%  « [SPACE/pause] »  [↑↓/kj] vol  [m] mute  [q] quit
+▶  0:42 / 4:05  [██████████░░░░░░░░░░░░░░░░░░░░]  17%  🔊 [████████░░░░░░] 100%  « [SPACE/pause] »  [↑↓/kj] vol  [m] mute  [q] quit
 ```
 
 Use `--no-progress` to disable all terminal output and controls, which is recommended when running in the background or piping output.
