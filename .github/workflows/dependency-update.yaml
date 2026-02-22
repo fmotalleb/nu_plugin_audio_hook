@@ -31,10 +31,43 @@ jobs:
         id: upgrade
         shell: nu {0}
         run: |
-          # Pinned to commit 2b1f15507005879c0c4d026390bc8d09d97270f8 (2025-06-25: use crates.io for version lookup)
-          http get https://raw.githubusercontent.com/FMotalleb/nushell_sync_script/2b1f15507005879c0c4d026390bc8d09d97270f8/bump_dependencies.nu
-            | save /tmp/update.nu
-          nu /tmp/update.nu
+          def "gh latest tag" [repo: string]: nothing -> string {
+            http get $"https://api.github.com/repos/($repo)/releases/latest"
+              | get tag_name
+          }
+
+          let plugin_repository = "nushell/nushell"
+          let plugin_version = (try {
+              http get https://crates.io/api/v1/crates/nu-plugin?include=keywords%2Ccategories%2Cdownloads%2Cdefault_version
+                | get versions
+                | first
+                | get num
+            } catch {
+              gh latest tag $plugin_repository
+            })
+
+          let toml = (open Cargo.toml)
+          mut deps = ($toml | get dependencies)
+          let fields = ($toml | get dependencies | columns | where ($it =~ "nu-.*"))
+
+          for i in $fields {
+            $deps = ($deps | update $i ($deps | get $i | update version $plugin_version))
+          }
+
+          $deps = ($deps | update interprocess "=2.2.1")
+
+          $toml
+            | update package ($toml | get package | update version $plugin_version)
+            | update dependencies $deps
+            | save Cargo.toml --force
+
+          open nupm.nuon
+            | update version $plugin_version
+            | save nupm.nuon --force
+
+          cargo update interprocess --precise 2.2.1
+          cargo update
+          cargo build
 
       - name: Update CONTRIBUTORS.md
         run: |
