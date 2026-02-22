@@ -4,6 +4,11 @@ use std::sync::LazyLock;
 use lofty::tag::ItemKey;
 use nu_protocol::{record, Span, Value};
 
+/// Format-agnostic metadata key map.
+///
+/// Maps human-readable, lowercase key names (e.g. `"artist"`, `"replaygain_track_gain"`)
+/// to lofty [`ItemKey`] variants. The same key name works across MP3, FLAC, OGG, and MP4.
+/// Stored as a [`BTreeMap`] so iteration is always in stable alphabetical order.
 pub static TAG_MAP: LazyLock<BTreeMap<&'static str, ItemKey>> = LazyLock::new(|| {
     BTreeMap::from([
         // Core identity
@@ -69,6 +74,8 @@ pub static TAG_MAP: LazyLock<BTreeMap<&'static str, ItemKey>> = LazyLock::new(||
     ])
 });
 
+/// Builds the `sound meta --all` output: a list of records with `normalized` (the lookup
+/// key) and `frame_name` (the lofty [`ItemKey`] debug name) for every entry in [`TAG_MAP`].
 pub fn get_meta_records(span: Span) -> Value {
     let mut result: Vec<Value> = vec![];
     for (key, val) in TAG_MAP.iter() {

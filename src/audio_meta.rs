@@ -13,6 +13,11 @@ use crate::{
     utils::load_file,
     Sound,
 };
+/// Nushell command `sound meta set` — writes a single metadata tag to an audio file.
+///
+/// Accepts a file path, a format-agnostic key name (`-k`), and a string value (`-v`).
+/// The key is looked up in [`TAG_MAP`] (case-insensitive) and written via lofty so the
+/// same key name works across MP3, FLAC, OGG, and MP4.
 pub struct SoundMetaSetCmd;
 impl SimplePluginCommand for SoundMetaSetCmd {
     type Plugin = Sound;
@@ -44,6 +49,12 @@ impl SimplePluginCommand for SoundMetaSetCmd {
     }
 }
 
+/// Nushell command `sound meta` — reads metadata and file properties from an audio file.
+///
+/// With `--all` prints the full [`TAG_MAP`] key reference instead of reading a file.
+/// Otherwise returns a record containing file size, format, container bitrate,
+/// tag fields, numeric track/disc info, embedded artwork, and decoded-stream properties
+/// (duration, sample rate, channels).
 pub struct SoundMetaGetCmd;
 impl SimplePluginCommand for SoundMetaGetCmd {
     type Plugin = Sound;
@@ -87,6 +98,8 @@ impl SimplePluginCommand for SoundMetaGetCmd {
     }
 }
 
+/// Combines lofty tag data ([`parse_tags`]) with rodio stream data ([`parse_stream_meta`])
+/// into a single nushell `Record` value.
 fn parse_meta(
     call: &EvaluatedCall,
     mut file_value: std::fs::File,
@@ -108,6 +121,12 @@ fn parse_meta(
     Ok(Value::record(record, call.head))
 }
 
+/// Reads lofty metadata from `path` and populates a nushell [`Record`].
+///
+/// Covers file size, format extension, [`FileProperties`] (bitrate, bit depth),
+/// all [`TAG_MAP`] text fields, numeric track/disc accessors, and embedded artwork.
+/// Opens its own file handle via `std::fs::metadata` / `lofty::read_from_path` so no
+/// caller-owned handle is required.
 fn parse_tags(path: &std::path::Path, span: Span) -> Result<Record, LabeledError> {
     let mut record = record! {};
 
@@ -175,6 +194,11 @@ fn parse_tags(path: &std::path::Path, span: Span) -> Result<Record, LabeledError
     Ok(record)
 }
 
+/// Extracts duration (`H:MM:SS` string), sample rate, and channel count from a rodio
+/// [`Source`] and returns them as a nushell [`Record`].
+///
+/// This function is intentionally decoupled from file I/O so it can later accept a
+/// [`Source`] derived from a byte stream (streaming pipeline support).
 fn parse_stream_meta(source: &impl Source, span: Span) -> Record {
     let mut record = record! {};
     if let Some(d) = source.total_duration() {
@@ -193,6 +217,11 @@ fn parse_stream_meta(source: &impl Source, span: Span) -> Record {
     record
 }
 
+/// Core implementation of `sound meta set`.
+///
+/// Looks up the normalised key in [`TAG_MAP`], obtains or creates the primary tag,
+/// calls `insert_text`, saves the file in-place, then re-reads and returns the
+/// updated metadata record so the caller always sees the final on-disk state.
 fn audio_meta_set(engine: &nu_plugin::EngineInterface, call: &EvaluatedCall) -> Result<Value, LabeledError> {
     let (_, file_value, path) = load_file(engine, call)?;
     let key = match call.get_flag_value("key") {
@@ -251,6 +280,7 @@ fn audio_meta_set(engine: &nu_plugin::EngineInterface, call: &EvaluatedCall) -> 
     })?;
     parse_meta(call, file, path)
 }
+/// Pushes a string field into `record` only when `val` is `Some`.
 fn insert_into_str(
     record: &mut Record,
     name: impl AsRef<str>,
@@ -262,6 +292,7 @@ fn insert_into_str(
     }
 }
 
+/// Pushes a `u32` field into `record` as a nushell `int` only when `val` is `Some`.
 fn insert_into_integer(record: &mut Record, name: &str, val: Option<u32>, span: Span) {
     if let Some(val) = val {
         record.push(name, Value::int(val.into(), span));

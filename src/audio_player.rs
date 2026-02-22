@@ -35,7 +35,10 @@ const VOLUME_STEP: f32 = 0.05;
 /// Maximum volume (200%).
 const VOLUME_MAX: f32 = 2.0;
 
-/// Which icon/character set to use for rendering.
+/// Selects the glyph set used for the live progress display.
+///
+/// Priority order for resolution: `--nerd-fonts` flag → `NERD_FONTS=1` env var →
+/// Unicode (if the terminal locale advertises UTF-8) → ASCII fallback.
 #[derive(Clone, Copy, PartialEq)]
 enum IconSet {
     /// Nerd Font glyphs — richest, requires a patched font.
@@ -47,12 +50,19 @@ enum IconSet {
 }
 
 impl IconSet {
+    /// Play icon: `▶` / `>`.
     fn play(&self)         -> &'static str { match self { Self::NerdFont => "\u{f04b}", Self::Unicode => "▶",  Self::Ascii => ">"   } }
+    /// Pause icon: `⏸` / `||`.
     fn pause(&self)        -> &'static str { match self { Self::NerdFont => "\u{f04c}", Self::Unicode => "⏸", Self::Ascii => "||"  } }
+    /// Rewind / seek-back icon: `«` / `<<`.
     fn rewind(&self)       -> &'static str { match self { Self::NerdFont => "\u{f04a}", Self::Unicode => "«",  Self::Ascii => "<<"  } }
+    /// Fast-forward / seek-forward icon: `»` / `>>`.
     fn fast_forward(&self) -> &'static str { match self { Self::NerdFont => "\u{f04e}", Self::Unicode => "»",  Self::Ascii => ">>"  } }
+    /// Music note / track decoration icon.
     fn music(&self)        -> &'static str { match self { Self::NerdFont => "\u{f001}", Self::Unicode => "♪",  Self::Ascii => "#"   } }
+    /// Filled bar segment.
     fn fill(&self)         -> &'static str { match self { Self::NerdFont => "█",        Self::Unicode => "█",  Self::Ascii => "#"   } }
+    /// Empty bar segment.
     fn empty(&self)        -> &'static str { match self { Self::NerdFont => "░",        Self::Unicode => "░",  Self::Ascii => "."   } }
 
     /// Volume icon — three tiers based on level.
@@ -77,6 +87,8 @@ impl IconSet {
     }
 }
 
+/// Nushell command `sound play` — decodes and plays an audio file with a live
+/// progress bar on stderr and optional interactive keyboard controls.
 pub struct SoundPlayCmd;
 impl SimplePluginCommand for SoundPlayCmd {
     type Plugin = Sound;
@@ -172,6 +184,11 @@ impl SimplePluginCommand for SoundPlayCmd {
 // Core playback
 // ---------------------------------------------------------------------------
 
+/// Opens the default audio output, decodes the file via rodio, and delegates to
+/// either [`wait_silent`] or [`wait_with_progress`] depending on `--no-progress`.
+///
+/// Duration is resolved in priority order: `-d` flag → `source.total_duration()` →
+/// `lofty::FileProperties::duration()` → 1-hour safety fallback.
 fn play_audio(engine: &EngineInterface, call: &EvaluatedCall) -> Result<(), LabeledError> {
     let (file_span, file, path) = load_file(engine, call)?;
 
@@ -264,6 +281,10 @@ fn resolve_icon_set(call: &EvaluatedCall) -> IconSet {
 // Wait strategies
 // ---------------------------------------------------------------------------
 
+/// Waits for playback to finish without rendering any output to stderr.
+///
+/// Exits early when `sink.empty()` returns `true` so the command returns promptly
+/// at the real end of the stream rather than sleeping for the full `total` duration.
 fn wait_silent(
     engine: &EngineInterface,
     call: &EvaluatedCall,
@@ -280,6 +301,11 @@ fn wait_silent(
     Ok(())
 }
 
+/// Renders a live progress line (and optional header) to stderr while the sink plays.
+///
+/// For files longer than [`CONTROLS_THRESHOLD`] the terminal is placed in raw mode and
+/// keyboard events (space, arrows, `m`, `q`) are processed. Raw mode is always restored
+/// on exit, even if an error occurs.
 fn wait_with_progress(
     engine: &EngineInterface,
     call: &EvaluatedCall,
@@ -590,6 +616,10 @@ fn render_progress(
     let _ = err.flush();
 }
 
+/// Renders a single progress bar of the given `width` as a `String`.
+///
+/// For [`IconSet::NerdFont`] a fractional leading block character is used for
+/// sub-cell precision; other icon sets round to the nearest whole cell.
 fn render_bar(ratio: f64, width: usize, icons: &IconSet) -> String {
     let ratio = ratio.clamp(0.0, 1.0);
     let f_width = ratio * width as f64;
@@ -674,6 +704,8 @@ fn terminal_supports_unicode() -> bool {
 // Helpers
 // ---------------------------------------------------------------------------
 
+/// Reads a nushell `Duration` flag by name and converts it to [`std::time::Duration`].
+/// Returns `None` if the flag was not supplied or contains a negative value.
 fn load_duration_from(call: &EvaluatedCall, name: &str) -> Option<Duration> {
     match call.get_flag_value(name) {
         Some(Value::Duration { val, .. }) if val >= 0 => Some(Duration::from_nanos(val as u64)),
