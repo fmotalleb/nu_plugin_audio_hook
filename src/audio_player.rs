@@ -281,7 +281,7 @@ fn wait_with_progress(
     let interactive = total >= CONTROLS_THRESHOLD;
 
     let mut position  = Duration::ZERO;
-    let mut last_tick = Instant::now();
+    let mut last_position = Duration::ZERO;
     let mut last_render = Instant::now().checked_sub(RENDER_INTERVAL).unwrap_or(Instant::now());
     let mut paused    = false;
     let mut volume    = initial_volume;
@@ -297,11 +297,7 @@ fn wait_with_progress(
             _ => String::new(),
         };
 
-        let prefix = match icons {
-            IconSet::NerdFont => "  ",
-            IconSet::Unicode => "♪  ",
-            IconSet::Ascii => "#  ",
-        };
+        let prefix = format!("{}  ", icons.music());
 
         let full_header = format!("{}{}", prefix, header_text);
         let term_width = size().map(|(w, _)| w).unwrap_or(30) as usize;
@@ -334,11 +330,8 @@ fn wait_with_progress(
 
     let result = (|| {
         loop {
-            let now = Instant::now();
-            if !paused {
-                position += now.saturating_duration_since(last_tick);
-            }
-            last_tick = now;
+            position = sink.get_pos();
+            last_position = position;
 
             if position >= total || sink.empty() {
                 break;
@@ -362,19 +355,13 @@ fn wait_with_progress(
                             // Right / 'l' — seek forward.
                             KeyCode::Right | KeyCode::Char('l') => {
                                 let target = (position + SEEK_STEP).min(total);
-                                if sink.try_seek(target).is_ok() {
-                                    position = target;
-                                    last_tick = Instant::now();
-                                }
+                                let _ = sink.try_seek(target);
                                 needs_render = true;
                             }
                             // Left / 'h' — seek backward.
                             KeyCode::Left | KeyCode::Char('h') => {
                                 let target = position.saturating_sub(SEEK_STEP);
-                                if sink.try_seek(target).is_ok() {
-                                    position = target;
-                                    last_tick = Instant::now();
-                                }
+                                let _ = sink.try_seek(target);
                                 needs_render = true;
                             }
                             // Up / 'k' — volume up.
@@ -596,7 +583,10 @@ fn format_duration(d: Duration) -> String {
 fn terminal_supports_unicode() -> bool {
     #[cfg(target_os = "windows")]
     {
-        std::env::var("WT_SESSION").is_ok() || std::env::var("ConEmuPID").is_ok()
+        std::env::var("WT_SESSION").is_ok()
+            || std::env::var("ConEmuPID").is_ok()
+            || std::env::var("TERM_PROGRAM").map(|v| v == "vscode").unwrap_or(false)
+            || std::env::var("ANSICON").is_ok()
     }
 
     #[cfg(not(target_os = "windows"))]
