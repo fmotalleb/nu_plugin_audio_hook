@@ -45,24 +45,25 @@ jobs:
             } catch {
               gh latest tag $plugin_repository
             })
+          let sanitized_plugin_version = ($plugin_version | str replace --regex "^v" "")
 
           let toml = (open Cargo.toml)
           mut deps = ($toml | get dependencies)
           let fields = ($toml | get dependencies | columns | where ($it =~ "nu-.*"))
 
           for i in $fields {
-            $deps = ($deps | update $i ($deps | get $i | update version $plugin_version))
+            $deps = ($deps | update $i ($deps | get $i | update version $sanitized_plugin_version))
           }
 
           $deps = ($deps | update interprocess "=2.2.1")
 
           $toml
-            | update package ($toml | get package | update version $plugin_version)
+            | update package ($toml | get package | update version $sanitized_plugin_version)
             | update dependencies $deps
             | save Cargo.toml --force
 
           open nupm.nuon
-            | update version $plugin_version
+            | update version $sanitized_plugin_version
             | save nupm.nuon --force
 
           cargo update interprocess --precise 2.2.1
