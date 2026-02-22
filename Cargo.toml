@@ -1,52 +1,12 @@
-[dependencies]
-chrono = "0.4.41"
-env_logger = "0.11"
-log = "0.4"
-
-[dependencies.nu-plugin]
-version = "0.110.0"
-
-[dependencies.id3]
-version = "1.16.3"
-
-[dependencies.lazy_static]
-version = "1.4.0"
-
-[dependencies.nu-protocol]
-features = ["plugin"]
-version = "0.110.0"
-
-[dependencies.rodio]
-version = "0.21.1"
-
-[features]
-all-decoders = [
-    "default",
-    "symphonia-all",
-]
-default = [
-    "flac",
-    "vorbis",
-    "wav",
-    "symphonia-mp3",
-]
-flac = ["rodio/flac"]
-minimp3 = ["rodio/minimp3"]
-symphonia-aac = ["rodio/symphonia-aac"]
-symphonia-all = ["rodio/symphonia-all"]
-symphonia-flac = ["rodio/symphonia-flac"]
-symphonia-isomp4 = ["rodio/symphonia-isomp4"]
-symphonia-mp3 = ["rodio/symphonia-mp3"]
-symphonia-vorbis = ["rodio/symphonia-vorbis"]
-symphonia-wav = ["rodio/symphonia-wav"]
-vorbis = ["rodio/vorbis"]
-wav = ["rodio/wav"]
-
 [package]
-authors = ["Motalleb Fallahnezhad <fmotalleb@gmail.com>"]
-description = "A nushell plugin to make and play sounds"
+name = "nu_plugin_audio_hook"
+version = "0.110.0"
 edition = "2021"
+description = "A nushell plugin to make and play sounds"
 homepage = "https://github.com/FMotalleb/nu_plugin_audio_hook"
+repository = "https://github.com/FMotalleb/nu_plugin_audio_hook"
+readme = "README.md"
+license = "MIT"
 keywords = [
     "nushell",
     "audio",
@@ -54,11 +14,93 @@ keywords = [
     "player",
     "plugin",
 ]
-license = "MIT"
-name = "nu_plugin_audio_hook"
-readme = "README.md"
-repository = "https://github.com/FMotalleb/nu_plugin_audio_hook"
+
+[package.metadata]
+authors-file = "AUTHORS"
+
+[dependencies]
+chrono = "0.4.41"
+env_logger = "0.11"
+log = "0.4"
+
+[dependencies.crossterm]
+version = "0.29"
+
+[dependencies.id3]
+version = "1.16.4"
+
+[dependencies.nu-plugin]
 version = "0.110.0"
+
+[dependencies.nu-protocol]
+version = "0.110.0"
+features = ["plugin"]
+
+[dependencies.rodio]
+version = "0.21.1"
+
+[features]
+# ── Recommended ─────────────────────────────────────────────────────────────
+# Enables every available decoder. Adds support for AAC, MP4/M4A, ALAC,
+# ADPCM, CAF, MKV/WebM (Opus), and all Symphonia-based variants of the
+# default formats on top of the default feature set.
+all-decoders = [
+    "default",
+    "symphonia-all",
+]
+
+# ── Default ──────────────────────────────────────────────────────────────────
+# A lightweight set covering the most common formats.
+# MP3 (via Symphonia), FLAC, OGG Vorbis, WAV.
+default = [
+    "flac",
+    "vorbis",
+    "wav",
+    "symphonia-mp3",
+]
+
+# ── Individual format flags ───────────────────────────────────────────────────
+# FLAC — lossless compression, widely used for archival audio.
+flac = ["rodio/flac"]
+
+# OGG Vorbis — open lossy format, common in games and open-source media.
+vorbis = ["rodio/vorbis"]
+
+# WAV — uncompressed PCM; universal but large file sizes.
+wav = ["rodio/wav"]
+
+# MP3 via minimp3 — lightweight alternative MP3 decoder.
+# Use symphonia-mp3 instead unless you have a specific reason to prefer this.
+minimp3 = ["rodio/minimp3"]
+
+# ── Symphonia-based decoders ──────────────────────────────────────────────────
+# Symphonia is a pure-Rust audio decoding library with broader format support.
+# Individual flags let you opt into specific formats without pulling everything.
+
+# MP3 via Symphonia — default MP3 decoder; better accuracy than minimp3.
+symphonia-mp3 = ["rodio/symphonia-mp3"]
+
+# AAC — lossy format used by Apple, YouTube, and most streaming services.
+symphonia-aac = ["rodio/symphonia-aac"]
+
+# FLAC via Symphonia — alternative to the default rodio FLAC decoder.
+symphonia-flac = ["rodio/symphonia-flac"]
+
+# MP4 / M4A — container format; required for AAC and ALAC in .m4a files.
+symphonia-isomp4 = ["rodio/symphonia-isomp4"]
+
+# OGG Vorbis via Symphonia — alternative to the default rodio Vorbis decoder.
+symphonia-vorbis = ["rodio/symphonia-vorbis"]
+
+# WAV via Symphonia — alternative to the default rodio WAV decoder.
+symphonia-wav = ["rodio/symphonia-wav"]
+
+# All Symphonia decoders — enables every format Symphonia supports, including:
+#   ALAC (Apple Lossless), ADPCM, CAF (Core Audio Format),
+#   MKV / WebM (Opus), and all of the individual flags above.
+# Note: ALAC, ADPCM, CAF, and MKV/Opus are only available through this
+# bundle flag; rodio does not expose them individually.
+symphonia-all = ["rodio/symphonia-all"]
 
 [profile.release]
 codegen-units = 1
