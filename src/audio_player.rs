@@ -281,7 +281,6 @@ fn wait_with_progress(
     let interactive = total >= CONTROLS_THRESHOLD;
 
     let mut position  = Duration::ZERO;
-    let mut last_position = Duration::ZERO;
     let mut last_render = Instant::now().checked_sub(RENDER_INTERVAL).unwrap_or(Instant::now());
     let mut paused    = false;
     let mut volume    = initial_volume;
@@ -330,8 +329,10 @@ fn wait_with_progress(
 
     let result = (|| {
         loop {
-            position = sink.get_pos();
-            last_position = position;
+            // Cap at total: some codecs briefly report a position slightly
+            // beyond the stream duration, which would incorrectly trip the
+            // end-of-track check or clamp the progress bar to 100% too early.
+            position = sink.get_pos().min(total);
 
             if position >= total || sink.empty() {
                 break;
@@ -424,6 +425,10 @@ fn wait_with_progress(
 // Rendering
 // ---------------------------------------------------------------------------
 
+/// Minimum terminal width below which the progress line is suppressed to
+/// avoid garbled wrapping output.
+const MIN_RENDER_WIDTH: u16 = 40;
+
 /// Renders one progress line in-place on stderr.
 ///
 /// Nerd Font:  ♪   0:42 / 4:05  [████████░░░░░░░░░░░░░░░░░░░░░░]  17%   100%  « [SPACE] »  [q]
@@ -438,6 +443,11 @@ fn render_progress(
     interactive: bool,
     icons: &IconSet,
 ) {
+    // Bail out silently on very narrow terminals rather than wrapping garbage.
+    if size().map(|(w, _)| w).unwrap_or(u16::MAX) < MIN_RENDER_WIDTH {
+        return;
+    }
+
     let elapsed_str = format_duration(elapsed);
     let total_str   = format_duration(total);
     let ratio = if total.is_zero() {
