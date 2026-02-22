@@ -113,11 +113,14 @@ fn parse_meta(
         return Err(LabeledError::new(e.to_string()).with_label("error seeking file", call.head));
     }
 
-    if let Ok(source) = Decoder::try_from(file_value) {
-        let stream_meta = parse_stream_meta(&source, lofty_duration, call.head);
-        for (col, val) in stream_meta {
-            record.push(col, val);
+    match Decoder::try_from(file_value) {
+        Ok(source) => {
+            let stream_meta = parse_stream_meta(&source, lofty_duration, call.head);
+            for (col, val) in stream_meta {
+                record.push(col, val);
+            }
         }
+        Err(e) => warn!("Failed to decode audio stream: {}", e),
     }
 
     Ok(Value::record(record, call.head))
@@ -167,6 +170,9 @@ fn parse_tags(path: &std::path::Path, span: Span) -> Result<(Record, Option<Dura
         // ── Tag fields ────────────────────────────────────────────────────────
         if let Some(tag) = tagged_file.primary_tag() {
             for (key, val) in TAG_MAP.iter() {
+                if *val == lofty::tag::ItemKey::TrackNumber || *val == lofty::tag::ItemKey::DiscNumber {
+                    continue;
+                }
                 if let Some(result) = tag.get_string(*val) {
                     insert_into_str(&mut record, key, Some(result.to_string()), span)
                 }

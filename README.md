@@ -94,7 +94,7 @@ Example output:
 │ track_no      │ 1                          │
 │ total_tracks  │ 12                         │
 │ artwork       │ [list 1 item]              │
-│ duration      │ 0:04:05                    │
+│ duration      │ 4:05                       │
 │ sample_rate   │ 44100                      │
 │ channels      │ 2                          │
 ╰───────────────┴────────────────────────────╯

@@ -91,5 +91,5 @@ pub fn get_meta_records(span: Span) -> Value {
             span,
         ));
     }
-    return Value::list(result, span);
+    Value::list(result, span)
 }
