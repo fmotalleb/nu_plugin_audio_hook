@@ -152,7 +152,7 @@ impl SimplePluginCommand for SoundPlayCmd {
         (install with `all-decoders` feature to include AAC and MP4). \
         Displays live playback stats by default; use --no-progress (-q) to suppress \
         output for scripting or background use. Interactive controls (space, arrows) \
-        are available for files longer than 1 minute, including volume up/down. \
+        are available for files longer than 1 minute, including volume up/down and 5s seeking. \
         Use --nerd-fonts (-n) or set NERD_FONTS=1 for richer icons."
     }
 
