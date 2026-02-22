@@ -295,31 +295,11 @@ fn wait_with_progress(
             (Some(a), Some(t)) => format!("{} — {}", a, t),
             (Some(a), None) => a.to_string(),
             (None, Some(t)) => t.to_string(),
-            _ => String::new(),
+            _ => unreachable!(),
         };
 
         let prefix = format!("{}  ", icons.music());
-
-        let full_header = format!("{}{}", prefix, header_text);
-        let term_width = size().map(|(w, _)| w).unwrap_or(30) as usize;
-        let display_header = if full_header.width() > term_width {
-            let ellipsis = if icons == IconSet::Ascii { "..." } else { "…" };
-            let max_len = term_width.saturating_sub(ellipsis.width());
-            let mut width = 0;
-            let mut truncated = String::new();
-            for c in full_header.chars() {
-                let w = c.width().unwrap_or(0);
-                if width + w > max_len {
-                    break;
-                }
-                width += w;
-                truncated.push(c);
-            }
-            format!("{}{}", truncated, ellipsis)
-        } else {
-            full_header
-        };
-        Some(display_header)
+        Some(format!("{}{}", prefix, header_text))
     } else {
         None
     };
@@ -551,7 +531,26 @@ fn render_progress(
         // Move up to the header line, clear it, and redraw.
         let _ = queue!(buf, MoveUp(1));
         let _ = queue!(buf, MoveToColumn(0), Clear(ClearType::CurrentLine));
-        let _ = buf.write_all(hdr.as_bytes());
+
+        let term_width = size().map(|(w, _)| w).unwrap_or(80) as usize;
+        if hdr.width() > term_width {
+            let ellipsis = if *icons == IconSet::Ascii { "..." } else { "…" };
+            let max_len = term_width.saturating_sub(ellipsis.width());
+            let mut width = 0;
+            let mut truncated = String::new();
+            for c in hdr.chars() {
+                let w = c.width().unwrap_or(0);
+                if width + w > max_len {
+                    break;
+                }
+                width += w;
+                truncated.push(c);
+            }
+            let _ = write!(buf, "{}{}", truncated, ellipsis);
+        } else {
+            let _ = buf.write_all(hdr.as_bytes());
+        }
+
         // Drop back down to the progress line.
         let _ = buf.write_all(b"\n");
     }
