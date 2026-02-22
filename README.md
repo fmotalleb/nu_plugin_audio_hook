@@ -147,10 +147,10 @@ For files longer than **1 minute**, interactive keyboard controls are enabled au
 | Key | Action |
 | --- | --- |
 | `Space` | Play / pause |
-| `→` or `l` | Seek forward 10 seconds |
-| `←` or `h` | Seek backward 10 seconds |
-| `↑` or `k` | Volume up 10% |
-| `↓` or `j` | Volume down 10% |
+| `→` or `l` | Seek forward 5 seconds |
+| `←` or `h` | Seek backward 5 seconds |
+| `↑` or `k` | Volume up 5% |
+| `↓` or `j` | Volume down 5% |
 | `m` | Toggle mute |
 | `q` or `Esc` | Stop and quit |
 

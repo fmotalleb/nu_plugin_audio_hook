@@ -12,6 +12,7 @@ use rodio::{source::Source, Decoder, OutputStreamBuilder, Sink};
 
 use std::io::{stderr, Write};
 use std::time::{Duration, Instant};
+use unicode_width::UnicodeWidthStr;
 
 use crate::{utils::load_file, Sound};
 
@@ -258,7 +259,7 @@ fn wait_silent(
 ) -> Result<(), LabeledError> {
     let start = Instant::now();
 
-    while start.elapsed() < total || !sink.empty() {
+    while start.elapsed() < total && !sink.empty() {
         engine.signals().check(&call.head)?;
         std::thread::sleep(KEY_POLL_INTERVAL);
     }
@@ -284,6 +285,7 @@ fn wait_with_progress(
     let mut last_render = Instant::now().checked_sub(RENDER_INTERVAL).unwrap_or(Instant::now());
     let mut paused    = false;
     let mut volume    = initial_volume;
+    let mut pre_mute_volume = initial_volume;
 
     let _ = execute!(err, Hide);
 
@@ -292,9 +294,10 @@ fn wait_with_progress(
     }
 
     if interactive {
-        enable_raw_mode().map_err(|e| {
-            LabeledError::new(e.to_string()).with_label("failed to enable raw terminal mode", call.head)
-        })?;
+        if let Err(e) = enable_raw_mode() {
+            let _ = execute!(err, Show);
+            return Err(LabeledError::new(e.to_string()).with_label("failed to enable raw terminal mode", call.head));
+        }
     }
 
     let result = (|| {
@@ -344,21 +347,24 @@ fn wait_with_progress(
                             // Up / 'k' — volume up.
                             KeyCode::Up | KeyCode::Char('k') => {
                                 volume = (volume + VOLUME_STEP).min(VOLUME_MAX);
+                                if volume > 0.0 { pre_mute_volume = volume; }
                                 sink.set_volume(volume);
                                 needs_render = true;
                             }
                             // Down / 'j' — volume down.
                             KeyCode::Down | KeyCode::Char('j') => {
                                 volume = (volume - VOLUME_STEP).max(0.0);
+                                if volume > 0.0 { pre_mute_volume = volume; }
                                 sink.set_volume(volume);
                                 needs_render = true;
                             }
                             // 'm' — toggle mute (sets volume to 0 / restores).
                             KeyCode::Char('m') => {
                                 if volume > 0.0 {
+                                    pre_mute_volume = volume;
                                     volume = 0.0;
                                 } else {
-                                    volume = initial_volume.max(VOLUME_STEP);
+                                    volume = pre_mute_volume.max(VOLUME_STEP);
                                 }
                                 sink.set_volume(volume);
                                 needs_render = true;
@@ -415,7 +421,11 @@ fn render_progress(
 ) {
     let elapsed_str = format_duration(elapsed);
     let total_str   = format_duration(total);
-    let ratio       = (elapsed.as_secs_f64() / total.as_secs_f64()).clamp(0.0, 1.0);
+    let ratio = if total.is_zero() {
+        0.0
+    } else {
+        (elapsed.as_secs_f64() / total.as_secs_f64()).clamp(0.0, 1.0)
+    };
     let percent     = (ratio * 100.0).round() as u8;
     let vol_pct     = (volume.min(VOLUME_MAX) * 100.0).round() as u8;
     let vol_icon    = icons.volume(volume);
@@ -438,9 +448,9 @@ fn render_progress(
 
         let full_header = format!("{}{}", prefix, header_text);
         let term_width = size().map(|(w, _)| w).unwrap_or(30) as usize;
-        let display_header = if full_header.chars().count() > term_width {
+        let display_header = if full_header.width() > term_width {
             let ellipsis = if *icons == IconSet::Ascii { "..." } else { "…" };
-            let max_len = term_width.saturating_sub(ellipsis.chars().count());
+            let max_len = term_width.saturating_sub(ellipsis.width());
             let truncated: String = full_header.chars().take(max_len).collect();
             format!("{}{}", truncated, ellipsis)
         } else {
@@ -473,25 +483,25 @@ fn render_progress(
     let mut vol_bar_width = 10;
 
     if let Ok((cols, _)) = size() {
-        let overhead = prefix.chars().count()
-            + icon.chars().count()
+        let overhead = prefix.width()
+            + icon.width()
             + 2 // "  "
-            + elapsed_str.len()
+            + elapsed_str.width()
             + 3 // " / "
-            + total_str.len()
+            + total_str.width()
             + 2 // "  "
             + 2 // "[]" main bar
             + 2 // "  "
-            + percent.to_string().len()
+            + percent.to_string().width()
             + 1 // "%"
             + 2 // "  "
-            + vol_icon.chars().count()
+            + vol_icon.width()
             + 1 // " "
             + 2 // "[]" vol bar
             + 1 // " "
-            + vol_pct.to_string().len()
+            + vol_pct.to_string().width()
             + 1 // "%"
-            + controls_suffix.chars().count();
+            + controls_suffix.width();
 
         let available = (cols as usize).saturating_sub(overhead);
         // We want: bar_width + vol_bar_width <= available

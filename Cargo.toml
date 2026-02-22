@@ -39,6 +39,9 @@ features = ["plugin"]
 [dependencies.rodio]
 version = "0.21.1"
 
+[dependencies.unicode-width]
+version = "0.1"
+
 [features]
 # ── Recommended ─────────────────────────────────────────────────────────────
 # Enables every available decoder. Adds support for AAC, MP4/M4A, ALAC,
@@ -105,5 +108,5 @@ symphonia-all = ["rodio/symphonia-all"]
 [profile.release]
 codegen-units = 1
 lto = true
-opt-level = "z"
+opt-level = 2
 strip = true

@@ -23,11 +23,16 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Save HEAD before commit
+        id: head_before
+        run: echo "sha=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+
       - name: Upgrade dependencies
         id: upgrade
         shell: nu {0}
         run: |
-          http get https://raw.githubusercontent.com/FMotalleb/nushell_sync_script/refs/heads/main/bump_dependencies.nu
+          # Pinned to commit 2b1f155
+          http get https://raw.githubusercontent.com/FMotalleb/nushell_sync_script/2b1f155/bump_dependencies.nu
             | save /tmp/update.nu
           nu /tmp/update.nu
 
@@ -52,7 +57,11 @@ jobs:
       - name: Check for new commits
         id: check_commits
         run: |
-          echo "has_commits=$(git log --oneline -1 --format='%H' | wc -l | tr -d ' ')" >> $GITHUB_OUTPUT
+          if [ "$(git rev-parse --short HEAD)" != "${{ steps.head_before.outputs.sha }}" ]; then
+            echo "has_commits=1" >> $GITHUB_OUTPUT
+          else
+            echo "has_commits=0" >> $GITHUB_OUTPUT
+          fi
 
       - name: Extract Version
         id: extract_version
