@@ -1,3 +1,7 @@
+# Deprecation Notice
+
+Development moved to [This repository](https://github.com/SuaveIV/nu_plugin_audio). Thanks to [SuaveIV](https://github.com/SuaveIV) for continuing the work.
+
 # nu_plugin_audio_hook
 
 A [Nushell](https://www.nushell.sh/) plugin for generating and playing sounds. Supports beeping, tone generation, metadata manipulation, and playback for multiple audio formats.
